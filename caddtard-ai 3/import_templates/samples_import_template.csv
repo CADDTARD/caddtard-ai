@@ -1,0 +1,2 @@
+sample_id_external,sample_type,current_location,current_custodian,status
+EXAMPLE - Delete this row - ACME-2026-0001,tissue biopsy,Acme freezer B-3,J. Rivera (Acme),collected

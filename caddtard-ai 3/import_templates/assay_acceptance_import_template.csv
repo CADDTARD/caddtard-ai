@@ -1,0 +1,2 @@
+assay_name,metric_name,comparator,threshold_low,threshold_high,unit,measured_value
+EXAMPLE - Delete this row - fungal burden reduction,CFU_log_reduction,gte,1.0,,log10 CFU/g tissue,1.4

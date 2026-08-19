@@ -1,0 +1,85 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: caddtard
+      POSTGRES_PASSWORD: caddtard
+      POSTGRES_DB: caddtard
+    volumes:
+      - caddtard_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U caddtard -d caddtard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://caddtard:caddtard@db:5432/caddtard
+      CORS_ORIGINS: http://localhost:8000,http://127.0.0.1:8000
+      AGENTS_ENABLED: "true"
+      # Per-agent intervals are seeded on the AgentDefinition table (see
+      # app/seed_data_v2.py) rather than read from env vars as of v2.0; this
+      # is the fallback used only for agents whose row has interval_minutes
+      # unset.
+      DEFAULT_AGENT_INTERVAL_MINUTES: "720"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # --- Optional Layer 2/6 infrastructure, matching the target architecture's
+  # Neo4j / Redis / OpenSearch stack. None of these are wired into the API
+  # yet (the knowledge graph runs on Postgres today - see ARCHITECTURE.md for
+  # the swap-in plan behind app/graph/store.py). They're included here,
+  # behind the "extended" profile, so the full target infra can be brought up
+  # and experimented with without being required for `docker compose up`.
+  #   docker compose --profile extended up
+  neo4j:
+    image: neo4j:5-community
+    profiles: ["extended"]
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/caddtard_dev
+    volumes:
+      - caddtard_neo4j:/data
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["extended"]
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  opensearch:
+    image: opensearchproject/opensearch:2
+    profiles: ["extended"]
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - caddtard_opensearch:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+
+volumes:
+  caddtard_pgdata:
+  caddtard_neo4j:
+  caddtard_opensearch:

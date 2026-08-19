@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CADDTARD AI - V-ATPase Command Center</title>
+<link rel="stylesheet" href="/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div>
+      <h1>CADDTARD AI <span class="small">v2.0</span></h1>
+      <p>Computer-Aided Drug Design Targeting Rare Disease &mdash; V-ATPase program, served live from the CADDTARD API</p>
+      <p class="small" id="apiStatus">Connecting to API...</p>
+    </div>
+    <div class="header-actions">
+      <a href="/docs" target="_blank"><button>API docs</button></a>
+      <button id="refreshAll" class="primary">Refresh all agents</button>
+      <button id="toggleTheme">Dark mode</button>
+    </div>
+  </div>
+
+  <div id="connectionBanner" style="display:none;" class="banner error"></div>
+
+  <div class="kpi-row" id="kpiRow"><div class="skeleton">Loading...</div></div>
+
+  <!-- Layer 6: Executive Dashboard -->
+  <div class="section-title"><h2>Executive dashboard &mdash; portfolio health</h2><span class="small">Layer 6</span></div>
+  <div class="agent-grid" id="portfolioGrid"><div class="skeleton">Loading portfolio health...</div></div>
+
+  <!-- Prioritization -->
+  <div class="section-title"><h2>Prioritization &mdash; full scoring, 10 candidates</h2></div>
+  <div class="card card-wide" id="scoringCard"><div class="skeleton">Loading scoring data...</div></div>
+
+  <div class="section-title"><h2>Top-3 candidate deep-dive</h2><span class="count">select a candidate</span></div>
+  <div class="row" id="candidateTabs" style="margin-bottom:12px;"></div>
+  <div class="agent-grid" id="candidateGrid"></div>
+
+  <!-- Layer 2: Knowledge Graph -->
+  <div class="section-title"><h2>Scientific knowledge graph</h2><span class="small">Layer 2 &mdash; pathway map for the selected candidate's gene(s)</span></div>
+  <div class="card">
+    <div class="card-body" id="graphIntro"></div>
+    <div id="graphViz" style="height:340px; border:0.5px solid var(--border); border-radius:8px; margin-top:8px;"></div>
+    <div id="graphLegend" class="small" style="margin-top:8px;"></div>
+  </div>
+
+  <!-- Layer 4: Scientific Reasoning Engine -->
+  <div class="section-title"><h2>Scientific reasoning engine</h2><span class="small">Layer 4 &mdash; explicit, evidence-graded hypothesis chains</span></div>
+  <div id="hypothesesBox"></div>
+
+  <!-- Layer 3: AI Agent Network -->
+  <div class="section-title"><h2>AI agent network</h2><span class="count" id="agentCount"></span></div>
+  <div class="row" id="agentFilters" style="margin-bottom:12px;"></div>
+  <div class="agent-grid" id="agentGrid"></div>
+
+  <!-- Layer 1: Data Fabric -->
+  <div class="section-title"><h2>Data fabric</h2><span class="small">Layer 1 &mdash; source registry behind the agent network</span></div>
+  <div class="card card-wide" id="sourcesCard"></div>
+
+  <div class="section-title"><h2>12-month workflow &mdash; selected candidate</h2></div>
+  <div class="card">
+    <div class="card-body" id="timelineIntro"></div>
+    <div id="timelineBox"></div>
+  </div>
+
+  <div class="section-title"><h2>Non-clinical data package cost &mdash; selected candidate</h2></div>
+  <div class="card"><div id="costBreakdown"></div></div>
+
+  <div class="section-title"><h2>IND-readiness checklist &mdash; selected candidate</h2><span class="small">persisted server-side in Postgres/SQLite, not browser storage</span></div>
+  <div class="card" id="checklistCard"></div>
+
+  <!-- Layer 5: Laboratory Operating System -->
+  <div class="section-title"><h2>Laboratory operating system</h2><span class="small">Layer 5 &mdash; recommended next experiments, sourced from open hypothesis steps</span></div>
+  <div class="card card-wide" id="labRecommendationsCard"></div>
+  <div class="section-title"><h3 style="font-size:15px;">Experiments &mdash; selected candidate</h3></div>
+  <div class="card card-wide" id="experimentsCard"></div>
+
+  <footer id="footerBox"></footer>
+
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
