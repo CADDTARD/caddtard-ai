@@ -220,9 +220,14 @@ async function loadAgents(){
 
   Array.prototype.forEach.call(document.querySelectorAll('.runBtn'), function(btn){
     btn.addEventListener('click', async function(){
+      const adminToken = window.prompt('Enter the admin trigger token:');
+      if(!adminToken) return;
       btn.disabled = true; btn.textContent = 'Running...';
       try{
-        await api('/api/agents/' + btn.getAttribute('data-agent') + '/run', {method:'POST'});
+        await api('/api/agents/' + btn.getAttribute('data-agent') + '/run', {
+          method:'POST',
+          headers:{'Content-Type':'application/json', 'X-Admin-Token':adminToken}
+        });
         setTimeout(loadAgents, 3000); // give the background task a moment to finish
       }catch(e){ alert('Could not trigger agent: ' + e.message); }
       finally{ btn.disabled = false; btn.textContent = 'Run now'; }

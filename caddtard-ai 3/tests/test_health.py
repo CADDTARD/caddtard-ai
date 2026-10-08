@@ -33,6 +33,32 @@ def test_public_read_only_blocks_mutations_but_allows_reads(client, monkeypatch)
 
     blocked = client.post("/api/agents/genomics/run")
     assert blocked.status_code == 403
-    assert blocked.json() == {"detail": "This public deployment is read-only."}
+    assert "admin token is required" in blocked.json()["detail"]
 
     assert client.get("/health").status_code == 200
+
+
+def test_admin_token_only_allows_manual_agent_trigger_route(client, monkeypatch):
+    from app.main import settings
+
+    monkeypatch.setattr(settings, "public_read_only", True)
+    monkeypatch.setattr(settings, "admin_trigger_token", "test-admin-token")
+
+    wrong = client.post("/api/agents/not-a-real-agent/run", headers={"X-Admin-Token": "wrong"})
+    assert wrong.status_code == 403
+
+    # A valid token passes the read-only middleware to the router. The 404 is
+    # expected because this deliberately uses a nonexistent agent and avoids
+    # executing a live external-data background task in the test suite.
+    authorized = client.post(
+        "/api/agents/not-a-real-agent/run",
+        headers={"X-Admin-Token": "test-admin-token"},
+    )
+    assert authorized.status_code == 404
+
+    # The token is intentionally not a general write credential.
+    still_blocked = client.post(
+        "/api/ops/studies",
+        headers={"X-Admin-Token": "test-admin-token"},
+    )
+    assert still_blocked.status_code == 403

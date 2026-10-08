@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # rejecting every externally initiated mutation. Scheduled agents run
     # inside the process and are unaffected by this HTTP guard.
     public_read_only: bool = False
+    admin_trigger_token: str = ""
 
     agents_enabled: bool = True
     agent_initial_delay_seconds: int = 5
