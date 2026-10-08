@@ -21,6 +21,21 @@ PATHWAY_TERMS = [
 ]
 
 
+def _entry_count(group: dict) -> int:
+    """Return a Reactome result group's hit count across API schema variants.
+
+    ContentService currently returns ``entries`` as a list of result objects.
+    Older/example payloads have represented it as a numeric count, so accept
+    both forms and treat an absent or unexpected value as no hits.
+    """
+    entries = group.get("entries")
+    if isinstance(entries, list):
+        return len(entries)
+    if isinstance(entries, (int, float)) and not isinstance(entries, bool):
+        return int(entries)
+    return 0
+
+
 def run(run_id: int | None = None, trigger: str = "scheduled") -> None:
     settings = get_settings()
     db = with_session()
@@ -46,7 +61,7 @@ def run(run_id: int | None = None, trigger: str = "scheduled") -> None:
                                 findings.append(entry)
                                 continue
                             groups = data.get("results", []) or []
-                            total = sum(g.get("entries", 0) or 0 for g in groups) if groups else 0
+                            total = sum(_entry_count(group) for group in groups)
                             entry["result_group_count"] = len(groups)
                             entry["total_entries"] = total
                         else:
