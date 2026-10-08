@@ -13,3 +13,14 @@ def test_readiness(client):
     assert body["database"] is True
     # scheduler is intentionally disabled in the test environment (AGENTS_ENABLED=false)
     assert body["scheduler_running"] is True  # readiness treats "disabled" as trivially ready
+    assert body["registered_jobs"] == 0
+    assert body["expected_jobs"] == 0
+
+
+def test_dashboard_uses_real_health_route(client):
+    dashboard = client.get("/")
+    assert dashboard.status_code == 200
+    javascript = client.get("/app.js")
+    assert javascript.status_code == 200
+    assert "api('/health')" in javascript.text
+    assert "api('/api/health')" not in javascript.text

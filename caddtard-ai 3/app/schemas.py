@@ -157,6 +157,8 @@ class ReadinessOut(BaseModel):
     status: str
     database: bool
     scheduler_running: bool
+    registered_jobs: int
+    expected_jobs: int
 
 
 # --- Layer 1: Data Fabric ---

@@ -391,11 +391,40 @@ async function loadPortfolioHealth(){
   }).join('');
 }
 
+async function loadOperations(){
+  const ops = await api('/api/ops/summary');
+  const kpis = [
+    {n: ops.vendor_count, l: 'Verified CRO/vendor records'},
+    {n: ops.study_count, l: 'Operational studies'},
+    {n: ops.active_study_count, l: 'Active studies'},
+    {n: ops.demo_study_count, l: 'Clearly labelled demo studies'},
+  ];
+  document.getElementById('opsKpiRow').innerHTML = kpis.map(function(k){
+    return '<div class="kpi"><div class="n">'+k.n+'</div><div class="l">'+k.l+'</div></div>';
+  }).join('');
+
+  const studyRows = ops.studies.map(function(s){
+    return '<tr><td>'+s.title+(s.is_demo?' <span class="pill pill-warn">DEMO</span>':'')+
+      '<div class="small">'+s.study_type+'</div></td><td>'+s.candidate_slug+'</td><td>'+s.status+'</td><td>'+s.owner+'</td></tr>';
+  }).join('');
+  document.getElementById('studiesCard').innerHTML =
+    '<div class="card-head"><div><h3>CRO study registry</h3><div class="card-sub">Live from GET /api/ops/summary</div></div></div>'+
+    (studyRows ? '<table><thead><tr><th>Study</th><th>Candidate</th><th>Status</th><th>Owner</th></tr></thead><tbody>'+studyRows+'</tbody></table>' : '<div class="small">No studies imported yet.</div>');
+
+  const readinessRows = Object.keys(ops.readiness).map(function(slug){
+    const counts = ops.readiness[slug];
+    return '<tr><td><b>'+slug+'</b></td><td>'+(counts.present||0)+'</td><td>'+(counts.provisional||0)+'</td><td>'+(counts.missing||0)+'</td><td>'+(counts.failed||0)+'</td></tr>';
+  }).join('');
+  document.getElementById('readinessCard').innerHTML =
+    '<div class="card-head"><div><h3>CMC / nonclinical / regulatory readiness</h3><div class="card-sub">Evidence status is explicit; missing evidence is never represented as progress.</div></div></div>'+
+    (readinessRows ? '<table><thead><tr><th>Candidate</th><th>Present</th><th>Provisional</th><th>Missing</th><th>Failed</th></tr></thead><tbody>'+readinessRows+'</tbody></table>' : '<div class="small">No readiness evidence imported yet.</div>');
+}
+
 function renderFooter(){
   document.getElementById('footerBox').innerHTML =
     '<p>This dashboard is served by the CADDTARD API itself (FastAPI + StaticFiles) &mdash; there is no local HTML file to open. '+
     'All data comes from same-origin <code>/api/*</code> endpoints backed by a persistent database (SQLite locally, Postgres in Docker Compose). '+
-    'v2.0 adds the full six-layer architecture: a Layer 1 data-source registry, a Layer 2 relational knowledge graph (Postgres-backed today, Neo4j-swappable per ARCHITECTURE.md), '+
+    'v3.1 MVP implements the full seven-layer architecture: a Layer 1 data-source registry, a Layer 2 relational knowledge graph (Postgres-backed today, Neo4j-swappable per ARCHITECTURE.md), '+
     'a Layer 3 agent taxonomy spanning Genomics/Disease Biology/Therapeutics/AI Science/Development, a Layer 4 evidence-graded reasoning engine, a Layer 5 lab operating system, '+
     'and this Layer 6 executive view. "Live agent" pills call real public sources now; "Reference" pills are reserved, honestly-labeled slots not yet wired up &mdash; see ARCHITECTURE.md for the full implemented-vs-planned map.</p>'+
     '<p>Full interactive API reference: <a href="/docs" target="_blank">/docs</a> (Swagger) or <a href="/redoc" target="_blank">/redoc</a>.</p>'+
@@ -404,7 +433,7 @@ function renderFooter(){
 
 async function boot(){
   try{
-    const health = await api('/api/health');
+    const health = await api('/health');
     document.getElementById('apiStatus').textContent = 'Connected to ' + health.app + ' v' + health.version;
   }catch(e){
     document.getElementById('apiStatus').textContent = 'API unreachable';
@@ -413,13 +442,13 @@ async function boot(){
   }
   await Promise.all([
     loadKPIs(), loadScoring(), loadCandidateTabs(), loadAgents(),
-    loadSources(), loadPortfolioHealth(), loadLabRecommendations(),
+    loadSources(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(),
   ]);
   renderFooter();
 }
 
 document.getElementById('refreshAll').addEventListener('click', function(){
-  loadAgents(); loadPortfolioHealth(); loadLabRecommendations();
+  loadAgents(); loadPortfolioHealth(); loadLabRecommendations(); loadOperations();
 });
 
 boot();

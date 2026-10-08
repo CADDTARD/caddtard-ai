@@ -143,17 +143,19 @@ def _seed_v2(db: Session) -> None:
     hyp_count = 0
     step_count = 0
     for h in seed_data_v2.HYPOTHESES:
-        steps = h.pop("steps")
-        hypothesis = Hypothesis(**h)
+        hypothesis_data = dict(h)
+        steps = hypothesis_data.pop("steps")
+        hypothesis = Hypothesis(**hypothesis_data)
         db.add(hypothesis)
         db.flush()
         for i, step in enumerate(steps):
-            papers = step.pop("supporting_papers")
+            step_data = dict(step)
+            papers = step_data.pop("supporting_papers")
             db.add(HypothesisStep(
                 hypothesis_id=hypothesis.id,
                 sort_order=i,
                 supporting_papers_json=json.dumps(papers),
-                **step,
+                **step_data,
             ))
             step_count += 1
         hyp_count += 1
@@ -180,10 +182,9 @@ def _seed_v3(db: Session) -> None:
 
     for r in seed_data_v3.READINESS_REQUIREMENTS:
         db.add(ReadinessRequirement(**r))
-    db.commit()
+    db.flush()
 
     vendors = import_cro_vendors(db, seed_data_v3.DEMO_VENDOR_CSV, "DEMO_SEED")
-    db.commit()
     name_map = {v.name: v.id for v in vendors}
     import_vendor_quotes(db, seed_data_v3.DEMO_QUOTE_CSV, "DEMO_SEED", name_map)
 
@@ -197,7 +198,7 @@ def _seed_v3(db: Session) -> None:
         is_demo=True,
     )
     db.add(study)
-    db.commit()
+    db.flush()
     db.refresh(study)
 
     import_samples(db, seed_data_v3.DEMO_SAMPLE_CSV, "DEMO_SEED", study.id)

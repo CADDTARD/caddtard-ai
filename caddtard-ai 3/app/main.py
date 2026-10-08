@@ -1,5 +1,5 @@
 """
-CADDTARD AI v2.0 - FastAPI application entrypoint.
+CADDTARD AI v3.1 MVP - FastAPI application entrypoint.
 
 Run directly:      uvicorn app.main:app --reload
 Run via Docker:     see Dockerfile / docker-compose.yml
