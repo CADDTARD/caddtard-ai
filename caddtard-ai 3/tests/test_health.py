@@ -24,3 +24,15 @@ def test_dashboard_uses_real_health_route(client):
     assert javascript.status_code == 200
     assert "api('/health')" in javascript.text
     assert "api('/api/health')" not in javascript.text
+
+
+def test_public_read_only_blocks_mutations_but_allows_reads(client, monkeypatch):
+    from app.main import settings
+
+    monkeypatch.setattr(settings, "public_read_only", True)
+
+    blocked = client.post("/api/agents/genomics/run")
+    assert blocked.status_code == 403
+    assert blocked.json() == {"detail": "This public deployment is read-only."}
+
+    assert client.get("/health").status_code == 200

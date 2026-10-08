@@ -19,6 +19,11 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:8000,http://127.0.0.1:8000"
 
+    # Public demo deployments can expose the dashboard and read APIs while
+    # rejecting every externally initiated mutation. Scheduled agents run
+    # inside the process and are unaffected by this HTTP guard.
+    public_read_only: bool = False
+
     agents_enabled: bool = True
     agent_initial_delay_seconds: int = 5
     agent_stagger_seconds: int = 10

@@ -10,8 +10,9 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.agents.scheduler import start_scheduler, stop_scheduler
@@ -59,6 +60,21 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def enforce_public_read_only(request: Request, call_next):
+    """Reject public HTTP mutations when running as a read-only demo.
+
+    This protects lab, CRO import, checklist, and manual agent-run endpoints
+    without disabling the in-process scheduler's database writes.
+    """
+    if settings.public_read_only and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "This public deployment is read-only."},
+        )
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,
