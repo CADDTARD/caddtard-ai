@@ -272,6 +272,49 @@ async function loadSources(){
 
 let cyInstance = null;
 
+const graphTypeColor = {gene:'#1769aa', disease:'#c33d4a', pathway:'#16866a', drug:'#b56a10', variant:'#6f63a8'};
+
+function escapeGraphHtml(value){
+  return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch];
+  });
+}
+
+function renderGraphDetails(node){
+  const panel = document.getElementById('graphDetails');
+  if(!node){
+    panel.innerHTML = '<div class="graph-details-kicker">Selected node</div><h3>Explore the pathway</h3><p>Select a node to see its type, reference, scientific context, and direct relationships.</p>';
+    return;
+  }
+  const data = node.data();
+  const props = data.properties || {};
+  const relations = node.connectedEdges().map(function(edge){
+    const other = edge.source().id() === node.id() ? edge.target() : edge.source();
+    return '<li><b>'+escapeGraphHtml(edge.data('label').replace(/_/g, ' '))+'</b> &rarr; '+escapeGraphHtml(other.data('label'))+'</li>';
+  }).join('');
+  const context = props.description || props.protein_name || props.organ || props.inheritance || props.omim || '';
+  panel.innerHTML =
+    '<div class="graph-details-kicker">Selected node</div>'+
+    '<span class="graph-detail-type" style="background:'+ (graphTypeColor[data.type] || '#5c5b57') +'">'+escapeGraphHtml(data.type)+'</span>'+
+    '<h3>'+escapeGraphHtml(data.label)+'</h3>'+
+    (context ? '<p>'+escapeGraphHtml(context)+'</p>' : '')+
+    (data.externalRef ? '<div class="graph-detail-row"><span>External reference</span><strong>'+escapeGraphHtml(data.externalRef)+'</strong></div>' : '')+
+    (props.inheritance ? '<div class="graph-detail-row"><span>Inheritance</span><strong>'+escapeGraphHtml(props.inheritance)+'</strong></div>' : '')+
+    (props.organ ? '<div class="graph-detail-row"><span>Clinical system</span><strong>'+escapeGraphHtml(props.organ)+'</strong></div>' : '')+
+    '<div class="graph-detail-row"><span>Direct relationships ('+node.degree()+')</span>'+(relations ? '<ul class="graph-relations">'+relations+'</ul>' : '<strong>None recorded</strong>')+'</div>';
+}
+
+function setGraphFocus(node){
+  if(!cyInstance) return;
+  cyInstance.elements().removeClass('focused faded selected');
+  if(!node){ renderGraphDetails(null); return; }
+  const neighborhood = node.closedNeighborhood();
+  cyInstance.elements().not(neighborhood).addClass('faded');
+  neighborhood.addClass('focused');
+  node.addClass('selected');
+  renderGraphDetails(node);
+}
+
 async function loadGraphForSelected(){
   const c = candidatesCache.find(function(x){return x.slug===selectedSlug;});
   const symbol = c ? c.genes.split(/[,+]/)[0].trim() : '';
@@ -282,11 +325,11 @@ async function loadGraphForSelected(){
   }catch(e){
     document.getElementById('graphViz').innerHTML = '<div class="small" style="padding:12px;">No graph node seeded for '+symbol+' yet.</div>';
     document.getElementById('graphLegend').textContent = '';
+    renderGraphDetails(null);
     return;
   }
-  const typeColor = {gene:'#185fa5', disease:'#a32d2d', pathway:'#0f6e56', drug:'#854f0b', variant:'#5c5b57'};
   const elements = sub.nodes.map(function(n){
-    return {data:{id:'n'+n.id, label:n.label, type:n.node_type}};
+    return {data:{id:'n'+n.id, label:n.label, type:n.node_type, externalRef:n.external_ref, properties:n.properties || {}, focal:n.label===symbol}};
   }).concat(sub.edges.map(function(e){
     return {data:{id:'e'+e.id, source:'n'+e.source_id, target:'n'+e.target_id, label:e.edge_type}};
   }));
@@ -296,24 +339,56 @@ async function loadGraphForSelected(){
     elements: elements,
     style: [
       {selector:'node', style:{
-        'background-color': function(ele){ return typeColor[ele.data('type')] || '#5c5b57'; },
-        'label':'data(label)', 'color': getComputedStyle(document.documentElement).getPropertyValue('--text'),
-        'font-size':10, 'text-valign':'bottom', 'text-margin-y':4, 'width':26, 'height':26,
+        'background-color': function(ele){ return graphTypeColor[ele.data('type')] || '#5c5b57'; },
+        'border-width':3, 'border-color':'#ffffff', 'border-opacity':1,
+        'label':'data(label)', 'color':'#1c1c1a', 'font-size':12, 'font-weight':600,
+        'text-wrap':'wrap', 'text-max-width':125, 'text-valign':'bottom', 'text-halign':'center',
+        'text-margin-y':8, 'text-background-color':'#ffffff', 'text-background-opacity':0.92,
+        'text-background-padding':3, 'text-background-shape':'roundrectangle',
+        'width':34, 'height':34, 'overlay-padding':6, 'overlay-opacity':0,
       }},
+      {selector:'node[type = "pathway"]', style:{'shape':'round-rectangle', 'width':44, 'height':36}},
+      {selector:'node[type = "disease"]', style:{'shape':'diamond', 'width':40, 'height':40}},
+      {selector:'node[type = "drug"]', style:{'shape':'hexagon', 'width':40, 'height':40}},
+      {selector:'node[focal]', style:{'width':54, 'height':54, 'border-width':5, 'border-color':'#d6ecff', 'font-size':14, 'z-index':10}},
       {selector:'edge', style:{
-        'width':1.5, 'line-color': getComputedStyle(document.documentElement).getPropertyValue('--border-strong'),
-        'target-arrow-color': getComputedStyle(document.documentElement).getPropertyValue('--border-strong'),
-        'target-arrow-shape':'triangle', 'curve-style':'bezier',
-        'label':'data(label)', 'font-size':8, 'color': getComputedStyle(document.documentElement).getPropertyValue('--text-muted'),
+        'width':2, 'line-color':'#a7afb8', 'target-arrow-color':'#7d8792',
+        'target-arrow-shape':'triangle', 'arrow-scale':0.9, 'curve-style':'bezier',
+        'label':'data(label)', 'font-size':9.5, 'font-weight':500, 'color':'#4f5964',
+        'text-rotation':'autorotate', 'text-background-color':'#ffffff', 'text-background-opacity':0.88,
+        'text-background-padding':2, 'text-margin-y':-7,
       }},
+      {selector:'.faded', style:{'opacity':0.13, 'text-opacity':0.08}},
+      {selector:'node.selected', style:{'border-color':'#f2b84b', 'border-width':5, 'overlay-color':'#f2b84b', 'overlay-opacity':0.12}},
+      {selector:'edge.focused', style:{'width':3, 'line-color':'#4d8fc7', 'target-arrow-color':'#4d8fc7', 'z-index':8}},
     ],
-    layout: {name:'cose', animate:false, padding:20},
+    layout: {
+      name:'concentric', animate:false, padding:72, minNodeSpacing:72, avoidOverlap:true,
+      concentric:function(node){ return node.data('focal') ? 100 : (node.data('type') === 'pathway' ? 70 : 30); },
+      levelWidth:function(){ return 25; }, startAngle:Math.PI * 1.5, sweep:Math.PI * 2,
+    },
+    minZoom:0.45, maxZoom:2.2, wheelSensitivity:0.18,
   });
+  cyInstance.on('tap', 'node', function(evt){ setGraphFocus(evt.target); });
+  cyInstance.on('tap', function(evt){ if(evt.target === cyInstance) setGraphFocus(null); });
+  cyInstance.on('mouseover', 'node', function(){ document.getElementById('graphViz').style.cursor = 'pointer'; });
+  cyInstance.on('mouseout', 'node', function(){ document.getElementById('graphViz').style.cursor = 'grab'; });
+  const focalNode = cyInstance.nodes().filter(function(n){ return n.data('focal'); }).first();
+  if(focalNode && focalNode.length){ setGraphFocus(focalNode); }
+  cyInstance.fit(undefined, 52);
   const types = Array.from(new Set(sub.nodes.map(function(n){return n.node_type;})));
   document.getElementById('graphLegend').innerHTML = types.map(function(t){
-    return '<span style="display:inline-flex; align-items:center; gap:4px; margin-right:12px;"><span style="width:9px; height:9px; border-radius:50%; display:inline-block; background:'+(typeColor[t]||'#5c5b57')+';"></span>'+t+'</span>';
-  }).join('') + '<span>'+sub.nodes.length+' nodes, '+sub.edges.length+' edges</span>';
+    return '<span class="graph-legend-item"><span class="graph-legend-dot" style="background:'+(graphTypeColor[t]||'#5c5b57')+';"></span>'+escapeGraphHtml(t)+'</span>';
+  }).join('') + '<span class="graph-count">'+sub.nodes.length+' nodes &middot; '+sub.edges.length+' relationships</span>';
 }
+
+document.getElementById('graphZoomIn').addEventListener('click', function(){
+  if(cyInstance) cyInstance.zoom({level:Math.min(cyInstance.zoom()*1.25, cyInstance.maxZoom()), renderedPosition:{x:cyInstance.width()/2,y:cyInstance.height()/2}});
+});
+document.getElementById('graphZoomOut').addEventListener('click', function(){
+  if(cyInstance) cyInstance.zoom({level:Math.max(cyInstance.zoom()/1.25, cyInstance.minZoom()), renderedPosition:{x:cyInstance.width()/2,y:cyInstance.height()/2}});
+});
+document.getElementById('graphFit').addEventListener('click', function(){ if(cyInstance) cyInstance.animate({fit:{eles:cyInstance.elements(),padding:52},duration:280}); });
 
 function confidencePill(c){
   const pct = Math.round(c*100);
