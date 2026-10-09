@@ -41,10 +41,27 @@
 
   <!-- Layer 2: Knowledge Graph -->
   <div class="section-title"><h2>Scientific knowledge graph</h2><span class="small">Layer 2 &mdash; pathway map for the selected candidate's gene(s)</span></div>
-  <div class="card">
-    <div class="card-body" id="graphIntro"></div>
-    <div id="graphViz" style="height:340px; border:0.5px solid var(--border); border-radius:8px; margin-top:8px;"></div>
-    <div id="graphLegend" class="small" style="margin-top:8px;"></div>
+  <div class="card graph-card">
+    <div class="graph-toolbar">
+      <div>
+        <div class="card-body" id="graphIntro"></div>
+        <div class="small">Select a node to inspect its evidence and relationships. Drag to explore; scroll or pinch to zoom.</div>
+      </div>
+      <div class="graph-actions" aria-label="Knowledge graph controls">
+        <button type="button" id="graphZoomOut" title="Zoom out" aria-label="Zoom out">&minus;</button>
+        <button type="button" id="graphFit">Fit view</button>
+        <button type="button" id="graphZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+      </div>
+    </div>
+    <div class="graph-stage">
+      <div id="graphViz" role="img" aria-label="Interactive scientific knowledge graph"></div>
+      <aside id="graphDetails" class="graph-details" aria-live="polite">
+        <div class="graph-details-kicker">Selected node</div>
+        <h3>Explore the pathway</h3>
+        <p>Select a node to see its type, reference, scientific context, and direct relationships.</p>
+      </aside>
+    </div>
+    <div id="graphLegend" class="graph-legend"></div>
   </div>
 
   <!-- Layer 4: Scientific Reasoning Engine -->
