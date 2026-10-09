@@ -367,7 +367,7 @@ async function loadGraphForSelected(){
       concentric:function(node){ return node.data('focal') ? 100 : (node.data('type') === 'pathway' ? 70 : 30); },
       levelWidth:function(){ return 25; }, startAngle:Math.PI * 1.5, sweep:Math.PI * 2,
     },
-    minZoom:0.45, maxZoom:2.2, wheelSensitivity:0.18,
+    minZoom:0.45, maxZoom:2.2,
   });
   cyInstance.on('tap', 'node', function(evt){ setGraphFocus(evt.target); });
   cyInstance.on('tap', function(evt){ if(evt.target === cyInstance) setGraphFocus(null); });
