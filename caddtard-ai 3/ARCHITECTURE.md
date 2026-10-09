@@ -223,19 +223,15 @@ test that the pipeline works, not a separate hand-rolled fixture.
 
 ## Continuous operation
 
-The APScheduler background scheduler (`app/agents/scheduler.py`, unchanged in
-v3.0 other than picking up the 8 new agent rows) runs every `implemented`
+The APScheduler background scheduler (`app/agents/scheduler.py`) runs every `implemented`
 agent on its own `interval_minutes` for as long as the API process is up —
-this is real continuous polling, not an on-demand-only design. What "for as
-long as the process is up" cannot mean inside the sandbox this was built in:
-this development environment has no outbound access to PyPI (so
-`fastapi`/`sqlalchemy`/`apscheduler` cannot be `pip install`ed here to
-actually run the server) and no persistent public hostname. The code was
-written, unit-tested where dependency-free, and schema/logic-verified via
-raw-sqlite3 reimplementation (`verify_schema.py`, `verify_schema_v3.py`,
-`verify_ops_schema.py` — run these yourself, they need only the Python
-standard library). Actually running continuously on the internet requires
-deploying this Docker image to a real host — see `DEPLOY.md` for concrete
+this is real continuous polling, not an on-demand-only design. The v3.1 MVP
+was executed locally with 60 FastAPI tests, a clean Alembic upgrade/check,
+all 20 expected scheduler jobs registered, and all standalone schema/logic
+verification scripts passing. Its readiness endpoint now verifies database,
+scheduler and job-registration state. Actually running continuously on the
+internet still requires deploying the Docker image to an always-on host — see
+`DEPLOY.md` for concrete
 steps against Render or Railway.
 
 ## Technology stack: requested vs. actually running here

@@ -1,0 +1,28 @@
+databases:
+  - name: caddtard-postgres
+    databaseName: caddtard
+    user: caddtard
+
+services:
+  - type: web
+    name: caddtard-ai
+    runtime: docker
+    rootDir: "caddtard-ai 3"
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health/ready
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: caddtard-postgres
+          property: connectionString
+      - key: AGENTS_ENABLED
+        value: "true"
+      - key: PUBLIC_READ_ONLY
+        value: "true"
+      - key: ADMIN_TRIGGER_TOKEN
+        sync: false
+      - key: CORS_ORIGINS
+        value: "https://caddtard-ai.onrender.com"
+      - key: PATENTSVIEW_API_KEY
+        sync: false
