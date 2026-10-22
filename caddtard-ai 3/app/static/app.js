@@ -2,11 +2,14 @@ const API = ""; // same-origin: dashboard is served by the same FastAPI app it t
 let selectedSlug = null;
 let candidatesCache = [];
 
+var savedTheme = localStorage.getItem('caddtard-theme');
+if(savedTheme){ document.documentElement.setAttribute('data-theme', savedTheme); }
 document.getElementById('toggleTheme').addEventListener('click', function(){
   var html = document.documentElement;
-  var isDark = html.getAttribute('data-theme') === 'dark';
-  html.setAttribute('data-theme', isDark ? 'light' : 'dark');
-  this.textContent = isDark ? 'Dark mode' : 'Light mode';
+  var nextTheme = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', nextTheme);
+  localStorage.setItem('caddtard-theme', nextTheme);
+  this.setAttribute('aria-label', nextTheme === 'dark' ? 'Use light theme' : 'Use dark theme');
 });
 
 async function api(path, opts){
@@ -21,6 +24,7 @@ async function api(path, opts){
 
 function showConnectionError(err){
   const el = document.getElementById('connectionBanner');
+  el.hidden = false;
   el.style.display = 'block';
   el.textContent = 'Could not reach the CADDTARD API at this origin (' + err.message + '). Confirm the backend container is running and this page was loaded from the same host/port as the API (default http://localhost:8000/).';
 }
@@ -514,7 +518,7 @@ function renderFooter(){
 async function boot(){
   try{
     const health = await api('/health');
-    document.getElementById('apiStatus').textContent = 'Connected to ' + health.app + ' v' + health.version;
+    document.getElementById('apiStatus').innerHTML = '<span class="status-dot dot-green"></span> Connected to ' + health.app + ' v' + health.version + ' · live data';
   }catch(e){
     document.getElementById('apiStatus').textContent = 'API unreachable';
     showConnectionError(e);
@@ -527,8 +531,22 @@ async function boot(){
   renderFooter();
 }
 
-document.getElementById('refreshAll').addEventListener('click', function(){
-  loadAgents(); loadPortfolioHealth(); loadLabRecommendations(); loadOperations();
+document.getElementById('refreshAll').addEventListener('click', async function(){
+  var btn = this;
+  var oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Refreshing…';
+  try{
+    await Promise.all([loadKPIs(), loadScoring(), loadAgents(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations()]);
+    btn.textContent = 'Data refreshed ✓';
+    setTimeout(function(){ btn.textContent = oldText; }, 1500);
+  }catch(e){
+    showConnectionError(e);
+    btn.textContent = 'Refresh failed';
+    setTimeout(function(){ btn.textContent = oldText; }, 1800);
+  }finally{
+    btn.disabled = false;
+  }
 });
 
 boot();
