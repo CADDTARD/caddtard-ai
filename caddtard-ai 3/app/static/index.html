@@ -1,109 +1,73 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CADDTARD AI - V-ATPase Command Center</title>
-<link rel="stylesheet" href="/styles.css">
-<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#10172f">
+  <meta name="description" content="CADDTARD AI translational command center for rare-disease drug development.">
+  <title>CADDTARD AI — Rare Disease Command Center</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
 </head>
 <body>
-<div class="wrap">
-
-  <div class="header">
-    <div>
-      <h1>CADDTARD AI <span class="small">v3.1 MVP</span></h1>
-      <p>Computer-Aided Drug Design Targeting Rare Disease &mdash; V-ATPase program, served live from the CADDTARD API</p>
-      <p class="small" id="apiStatus">Connecting to API...</p>
+<div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+<header class="topbar">
+  <a class="brand" href="#overview" aria-label="CADDTARD AI home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span><strong>CADDTARD</strong><b>AI</b></span></a>
+  <nav class="topnav" aria-label="Dashboard sections"><a href="#portfolio">Portfolio</a><a href="#science">Science</a><a href="#agents">Agents</a><a href="#execution">Execution</a></nav>
+  <div class="header-actions"><a class="btn ghost" href="/docs" target="_blank" rel="noreferrer">API docs ↗</a><button id="toggleTheme" class="icon-btn" type="button" aria-label="Toggle color theme">◐</button></div>
+</header>
+<main class="wrap" id="overview">
+  <section class="hero">
+    <div class="hero-copy">
+      <div class="eyebrow"><span class="pulse"></span> Translational intelligence platform <span>v3.2 MVP</span></div>
+      <h1>Turn rare-disease evidence into <em>decisions.</em></h1>
+      <p>One living command center for target biology, candidate prioritization, experimental planning, IND readiness and portfolio execution — built around the V-ATPase program.</p>
+      <div class="hero-actions"><a class="btn primary" href="#portfolio">Explore the portfolio <span>→</span></a><button id="refreshAll" class="btn secondary" type="button">Refresh live data</button></div>
+      <div class="connection" id="apiStatus"><span class="status-dot dot-amber"></span> Connecting to live API…</div>
     </div>
-    <div class="header-actions">
-      <a href="/docs" target="_blank"><button>API docs</button></a>
-      <button id="refreshAll" class="primary">Refresh all agents</button>
-      <button id="toggleTheme">Dark mode</button>
+    <div class="hero-visual" aria-label="CADDTARD platform layers">
+      <div class="orbit orbit-a"><span>Evidence</span></div><div class="orbit orbit-b"><span>Agents</span></div><div class="orbit orbit-c"><span>Studies</span></div>
+      <div class="core"><span>CADDTARD</span><strong>AI</strong><small>DECISION ENGINE</small></div>
+      <div class="floating-chip chip-one">20 agents</div><div class="floating-chip chip-two">7 layers</div><div class="floating-chip chip-three">Live evidence</div>
     </div>
-  </div>
+  </section>
+  <div id="connectionBanner" hidden class="banner error"></div>
+  <section class="snapshot" aria-label="Platform snapshot"><div class="section-kicker">Live platform snapshot</div><div class="kpi-row" id="kpiRow"><div class="skeleton">Synchronizing portfolio metrics…</div></div></section>
 
-  <div id="connectionBanner" style="display:none;" class="banner error"></div>
+  <section id="portfolio" class="dashboard-section">
+    <div class="section-title"><div><span class="section-number">01</span><h2>Portfolio pulse</h2></div><p>Executive health across prioritized rare-disease programs</p></div>
+    <div class="agent-grid spotlight-grid" id="portfolioGrid"><div class="skeleton">Loading portfolio health…</div></div>
+    <div class="subsection-heading"><div><span class="mini-icon violet">↗</span><h3>Candidate prioritization</h3></div><span class="small">10 programs · 4 decision dimensions</span></div>
+    <div class="card card-wide" id="scoringCard"><div class="skeleton">Loading scoring matrix…</div></div>
+    <div class="subsection-heading"><div><span class="mini-icon coral">◆</span><h3>Top candidates</h3></div><span class="small">Select a program to update every downstream view</span></div>
+    <div class="row tab-rail" id="candidateTabs"></div><div class="agent-grid" id="candidateGrid"></div>
+  </section>
 
-  <div class="kpi-row" id="kpiRow"><div class="skeleton">Loading...</div></div>
-
-  <!-- Layer 6: Executive Dashboard -->
-  <div class="section-title"><h2>Executive dashboard &mdash; portfolio health</h2><span class="small">Layer 6</span></div>
-  <div class="agent-grid" id="portfolioGrid"><div class="skeleton">Loading portfolio health...</div></div>
-
-  <!-- Prioritization -->
-  <div class="section-title"><h2>Prioritization &mdash; full scoring, 10 candidates</h2></div>
-  <div class="card card-wide" id="scoringCard"><div class="skeleton">Loading scoring data...</div></div>
-
-  <div class="section-title"><h2>Top-3 candidate deep-dive</h2><span class="count">select a candidate</span></div>
-  <div class="row" id="candidateTabs" style="margin-bottom:12px;"></div>
-  <div class="agent-grid" id="candidateGrid"></div>
-
-  <!-- Layer 2: Knowledge Graph -->
-  <div class="section-title"><h2>Scientific knowledge graph</h2><span class="small">Layer 2 &mdash; pathway map for the selected candidate's gene(s)</span></div>
-  <div class="card graph-card">
-    <div class="graph-toolbar">
-      <div>
-        <div class="card-body" id="graphIntro"></div>
-        <div class="small">Select a node to inspect its evidence and relationships. Drag to explore; scroll or pinch to zoom.</div>
-      </div>
-      <div class="graph-actions" aria-label="Knowledge graph controls">
-        <button type="button" id="graphZoomOut" title="Zoom out" aria-label="Zoom out">&minus;</button>
-        <button type="button" id="graphFit">Fit view</button>
-        <button type="button" id="graphZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
-      </div>
+  <section id="science" class="dashboard-section">
+    <div class="section-title"><div><span class="section-number">02</span><h2>Scientific intelligence</h2></div><p>Trace the evidence from gene to mechanism to experiment</p></div>
+    <div class="card graph-card feature-card">
+      <div class="graph-toolbar"><div><span class="feature-label">INTERACTIVE KNOWLEDGE GRAPH</span><div class="card-body" id="graphIntro"></div><div class="small">Select a node to inspect evidence and relationships. Drag to explore; scroll or pinch to zoom.</div></div><div class="graph-actions" aria-label="Knowledge graph controls"><button type="button" id="graphZoomOut" title="Zoom out" aria-label="Zoom out">−</button><button type="button" id="graphFit">Fit view</button><button type="button" id="graphZoomIn" title="Zoom in" aria-label="Zoom in">+</button></div></div>
+      <div class="graph-stage"><div id="graphViz" role="img" aria-label="Interactive scientific knowledge graph"></div><aside id="graphDetails" class="graph-details" aria-live="polite"><div class="graph-details-kicker">Selected node</div><h3>Explore the pathway</h3><p>Select a node to see its type, reference, scientific context and direct relationships.</p></aside></div><div id="graphLegend" class="graph-legend"></div>
     </div>
-    <div class="graph-stage">
-      <div id="graphViz" role="img" aria-label="Interactive scientific knowledge graph"></div>
-      <aside id="graphDetails" class="graph-details" aria-live="polite">
-        <div class="graph-details-kicker">Selected node</div>
-        <h3>Explore the pathway</h3>
-        <p>Select a node to see its type, reference, scientific context, and direct relationships.</p>
-      </aside>
-    </div>
-    <div id="graphLegend" class="graph-legend"></div>
-  </div>
+    <div class="subsection-heading"><div><span class="mini-icon cyan">⌁</span><h3>Evidence-graded reasoning</h3></div><span class="small">Explicit hypothesis chains · confidence · next experiment</span></div><div id="hypothesesBox"></div>
+  </section>
 
-  <!-- Layer 4: Scientific Reasoning Engine -->
-  <div class="section-title"><h2>Scientific reasoning engine</h2><span class="small">Layer 4 &mdash; explicit, evidence-graded hypothesis chains</span></div>
-  <div id="hypothesesBox"></div>
+  <section id="agents" class="dashboard-section">
+    <div class="section-title"><div><span class="section-number">03</span><h2>Agent constellation</h2></div><p>Specialized agents turning public scientific data into program intelligence</p></div>
+    <div class="filter-panel"><div class="row" id="agentFilters"></div><span class="count" id="agentCount"></span></div><div class="agent-grid" id="agentGrid"></div>
+    <div class="subsection-heading"><div><span class="mini-icon lime">⌘</span><h3>Connected data fabric</h3></div><span class="small">Source registry behind the agent network</span></div><div class="card card-wide" id="sourcesCard"></div>
+  </section>
 
-  <!-- Layer 3: AI Agent Network -->
-  <div class="section-title"><h2>AI agent network</h2><span class="count" id="agentCount"></span></div>
-  <div class="row" id="agentFilters" style="margin-bottom:12px;"></div>
-  <div class="agent-grid" id="agentGrid"></div>
-
-  <!-- Layer 1: Data Fabric -->
-  <div class="section-title"><h2>Data fabric</h2><span class="small">Layer 1 &mdash; source registry behind the agent network</span></div>
-  <div class="card card-wide" id="sourcesCard"></div>
-
-  <div class="section-title"><h2>12-month workflow &mdash; selected candidate</h2></div>
-  <div class="card">
-    <div class="card-body" id="timelineIntro"></div>
-    <div id="timelineBox"></div>
-  </div>
-
-  <div class="section-title"><h2>Non-clinical data package cost &mdash; selected candidate</h2></div>
-  <div class="card"><div id="costBreakdown"></div></div>
-
-  <div class="section-title"><h2>IND-readiness checklist &mdash; selected candidate</h2><span class="small">persisted server-side in Postgres/SQLite, not browser storage</span></div>
-  <div class="card" id="checklistCard"></div>
-
-  <!-- Layer 5: Laboratory Operating System -->
-  <div class="section-title"><h2>Laboratory operating system</h2><span class="small">Layer 5 &mdash; recommended next experiments, sourced from open hypothesis steps</span></div>
-  <div class="card card-wide" id="labRecommendationsCard"></div>
-  <div class="section-title"><h3 style="font-size:15px;">Experiments &mdash; selected candidate</h3></div>
-  <div class="card card-wide" id="experimentsCard"></div>
-
-  <!-- Layer 7: Operational Command Center -->
-  <div class="section-title"><h2>Operational command center</h2><span class="small">Layer 7 &mdash; CRO, study and readiness oversight</span></div>
-  <div class="kpi-row" id="opsKpiRow"><div class="skeleton">Loading operations...</div></div>
-  <div class="card card-wide" id="studiesCard"></div>
-  <div class="card card-wide" id="readinessCard" style="margin-top:14px;"></div>
-
+  <section id="execution" class="dashboard-section">
+    <div class="section-title"><div><span class="section-number">04</span><h2>Execution runway</h2></div><p>Move the selected program from plan to experiment to IND readiness</p></div>
+    <div class="execution-grid"><div class="card execution-card"><div class="feature-label">12-MONTH ROADMAP</div><div class="card-body" id="timelineIntro"></div><div id="timelineBox"></div></div><div class="card execution-card"><div class="feature-label">NON-CLINICAL INVESTMENT</div><div id="costBreakdown"></div></div></div>
+    <div class="subsection-heading"><div><span class="mini-icon amber">✓</span><h3>IND readiness</h3></div><span class="small">Shared, server-persisted checklist</span></div><div class="card" id="checklistCard"></div>
+    <div class="subsection-heading"><div><span class="mini-icon pink">⚗</span><h3>Laboratory operating system</h3></div><span class="small">Recommended next experiments from open evidence gaps</span></div><div class="card card-wide" id="labRecommendationsCard"></div><div class="card card-wide spaced-card" id="experimentsCard"></div>
+    <div class="subsection-heading"><div><span class="mini-icon blue">◎</span><h3>Operational command center</h3></div><span class="small">CRO, study and evidence oversight</span></div><div class="kpi-row compact-kpis" id="opsKpiRow"><div class="skeleton">Loading operations…</div></div><div class="card card-wide" id="studiesCard"></div><div class="card card-wide spaced-card" id="readinessCard"></div>
+  </section>
   <footer id="footerBox"></footer>
-
-</div>
+</main>
 <script src="/app.js"></script>
 </body>
 </html>
