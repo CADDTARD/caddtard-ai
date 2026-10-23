@@ -42,6 +42,20 @@ def test_agents_divisions_endpoint(client):
     assert "Development" in divisions
 
 
+def test_disease_biology_workbench(client):
+    resp = client.get("/api/agents/disease-biology/workbench")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["division"] == "Disease Biology"
+    assert body["counts"]["total"] == 10
+    assert body["counts"]["implemented"] == 2
+    assert body["counts"]["planned"] == 8
+    keys = {agent["key"] for agent in body["agents"]}
+    assert {"disease_phenotype", "who_burden"}.issubset(keys)
+    assert all(agent["status"] in {"implemented", "planned"} for agent in body["agents"])
+    assert all(source["agent_key"] in keys for source in body["sources"])
+
+
 def test_trigger_planned_agent_returns_409(client):
     planned = client.get("/api/agents", params={"status": "planned"}).json()
     assert len(planned) > 0

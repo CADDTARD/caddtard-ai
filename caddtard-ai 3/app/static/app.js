@@ -100,7 +100,7 @@ async function loadCandidateTabs(){
 async function loadSelectedCandidatePanels(){
   await Promise.all([
     loadCandidateDetail(), loadTimeline(), loadCost(), loadChecklist(),
-    loadGraphForSelected(), loadHypotheses(), loadExperiments(),
+    loadGraphForSelected(), loadHypotheses(), loadExperiments(), loadDiseaseBiologyWorkbench(),
   ]);
 }
 
@@ -214,7 +214,7 @@ async function loadAgents(){
            '<div>'+ (last.summary || '') + '</div>')
         : '<div class="small">No runs yet &mdash; first scheduled run happens shortly after startup.</div>';
       foot = '<span>'+a.division+' &middot; every '+a.interval_minutes+' min</span>'+
-        '<button data-agent="'+a.key+'" class="runBtn">Run now</button>';
+        '<span class="scheduled-chip">Scheduled automatically</span>';
     } else {
       body = '<div class="small">Reserved slot in the ~100-agent taxonomy &mdash; interface defined, not yet wired to a live source.</div>';
       foot = '<span>'+a.division+' &middot; planned</span>';
@@ -222,21 +222,91 @@ async function loadAgents(){
     return agentCard('agent-'+a.key, a.name, a.description, pill, body, foot);
   }).join('');
 
-  Array.prototype.forEach.call(document.querySelectorAll('.runBtn'), function(btn){
-    btn.addEventListener('click', async function(){
-      const adminToken = window.prompt('Enter the admin trigger token:');
-      if(!adminToken) return;
-      btn.disabled = true; btn.textContent = 'Running...';
-      try{
-        await api('/api/agents/' + btn.getAttribute('data-agent') + '/run', {
-          method:'POST',
-          headers:{'Content-Type':'application/json', 'X-Admin-Token':adminToken}
-        });
-        setTimeout(loadAgents, 3000); // give the background task a moment to finish
-      }catch(e){ alert('Could not trigger agent: ' + e.message); }
-      finally{ btn.disabled = false; btn.textContent = 'Run now'; }
+}
+
+function biologyStage(state, step, title, description, meta){
+  var cls = state === 'live' ? 'is-live' : (state === 'active' ? 'is-active' : 'is-planned');
+  var label = state === 'live' ? 'LIVE' : (state === 'active' ? 'CONNECTED' : 'PLANNED');
+  return '<div class="biology-stage '+cls+'"><div class="biology-stage-index">'+step+'</div><div><div class="biology-stage-label">'+label+'</div><h4>'+escapeGraphHtml(title)+'</h4><p>'+escapeGraphHtml(description)+'</p><small>'+escapeGraphHtml(meta || '')+'</small></div></div>';
+}
+
+function biologyRunDetail(agent){
+  if(!agent.latest_run) return '<div class="small">Awaiting the first scheduled run.</div>';
+  var run = agent.latest_run;
+  var detail = run.detail || {};
+  var facts = [];
+  if(Array.isArray(detail.genes)){
+    facts = detail.genes.slice(0,4).map(function(g){
+      return '<span class="biology-fact">'+escapeGraphHtml(g.gene)+(g.monarch_hit ? ' · '+escapeGraphHtml(g.monarch_hit) : '')+'</span>';
     });
-  });
+  } else if(Array.isArray(detail.searches)){
+    var named = detail.searches.filter(function(s){return s.who_gho_has_named_indicator;}).length;
+    facts.push('<span class="biology-fact">'+named+' named WHO indicators</span>');
+    detail.searches.slice(0,3).forEach(function(s){ facts.push('<span class="biology-fact">'+escapeGraphHtml(s.term)+'</span>'); });
+  } else if(detail.error){
+    facts.push('<span class="biology-fact danger">'+escapeGraphHtml(detail.error)+'</span>');
+  }
+  return '<div class="biology-run-head">'+statusPill(run.status)+'<span class="small">'+fmtTime(run.finished_at || run.started_at)+'</span></div>'+
+    '<p>'+escapeGraphHtml(run.summary || 'Scheduled run completed.')+'</p>'+
+    (facts.length ? '<div class="biology-facts">'+facts.join('')+'</div>' : '');
+}
+
+async function loadDiseaseBiologyWorkbench(){
+  var programs = candidatesCache.length ? candidatesCache : await api('/api/candidates');
+  if(!selectedSlug && programs.length) selectedSlug = programs[0].slug;
+  var responses = await Promise.all([
+    api('/api/agents/disease-biology/workbench'),
+    api('/api/candidates/' + selectedSlug),
+    api('/api/hypotheses?candidate=' + encodeURIComponent(selectedSlug)),
+  ]);
+  var workbench = responses[0], candidate = responses[1], hypotheses = responses[2];
+  var implemented = workbench.agents.filter(function(a){return a.status === 'implemented';});
+  var agentByKey = {};
+  workbench.agents.forEach(function(a){agentByKey[a.key] = a;});
+
+  document.getElementById('biologyProgramTitle').textContent = candidate.name;
+  document.getElementById('biologyProgramSummary').innerHTML =
+    '<strong>'+escapeGraphHtml(candidate.genes)+'</strong> · '+escapeGraphHtml(candidate.organ)+' · '+escapeGraphHtml(candidate.inheritance)+
+    '<br><span class="small">Mechanistic focus: '+escapeGraphHtml(candidate.mechanism)+'</span>';
+
+  var kpis = [
+    {n: workbench.counts.implemented+' / '+workbench.counts.total, l:'Disease biology agents live'},
+    {n: workbench.counts.healthy_latest_runs, l:'Healthy latest scheduled runs'},
+    {n: workbench.counts.connected_sources, l:'Connected biology sources'},
+    {n: hypotheses.length, l:'Evidence-graded hypotheses for program'},
+  ];
+  document.getElementById('biologyKpis').innerHTML = kpis.map(function(k){
+    return '<div class="kpi"><div class="n">'+k.n+'</div><div class="l">'+k.l+'</div></div>';
+  }).join('');
+
+  var diseaseLive = agentByKey.disease_phenotype && agentByKey.disease_phenotype.latest_run && agentByKey.disease_phenotype.latest_run.status === 'success';
+  var burdenLive = agentByKey.who_burden && agentByKey.who_burden.latest_run && agentByKey.who_burden.latest_run.status === 'success';
+  document.getElementById('biologyPipeline').innerHTML = [
+    biologyStage(diseaseLive?'live':'active','01','Disease resolution','Normalize genes, diseases and cross-species phenotype links.','Monarch Initiative'),
+    biologyStage(diseaseLive?'active':'planned','02','Phenotype profile','Organize gene-associated phenotypes into a program-ready signature.','Phenotype interface staged'),
+    biologyStage(burdenLive?'live':'active','03','Burden & natural history','Separate measured burden from explicit evidence gaps.','WHO GHO + natural-history interface'),
+    biologyStage('planned','04','Cell & pathway systems','Connect lysosome, autophagy, mitochondria and immune biology.','Reserved specialist agents'),
+    biologyStage(hypotheses.length?'active':'planned','05','Experimental handoff','Translate open causal links into testable biological experiments.',hypotheses.length+' active hypothesis chains'),
+  ].join('');
+
+  document.getElementById('biologyEvidenceFeed').innerHTML = implemented.map(function(agent){
+    return '<article class="biology-evidence-item"><div class="flex-between"><h4>'+escapeGraphHtml(agent.name)+'</h4><span class="small">every '+agent.interval_minutes+' min</span></div>'+biologyRunDetail(agent)+'</article>';
+  }).join('') || '<div class="small">No Disease Biology agents are implemented yet.</div>';
+
+  document.getElementById('biologyAgentGrid').innerHTML = workbench.agents.map(function(agent){
+    var pill = agent.status === 'implemented' ? livePill() : '<span class="pill pill-static">interface reserved</span>';
+    var body = agent.status === 'implemented'
+      ? biologyRunDetail(agent)
+      : '<p class="small">'+escapeGraphHtml(agent.description)+'</p><div class="biology-interface-note">Defined contract · awaiting validated data source</div>';
+    return agentCard('biology-agent-'+agent.key, escapeGraphHtml(agent.name), escapeGraphHtml(agent.description), pill, body,
+      agent.status === 'implemented' ? '<span>Scheduled every '+agent.interval_minutes+' min</span><span>Read only</span>' : '<span>Planned capability</span>');
+  }).join('');
+
+  var sourceRows = workbench.sources.map(function(source){
+    return '<tr><td><b>'+escapeGraphHtml(source.name)+'</b><div class="small">'+escapeGraphHtml(source.integration_type)+'</div></td><td>'+(source.status==='connected'?livePill():staticPill())+'</td><td>'+escapeGraphHtml(source.agent_key)+'</td><td class="small">'+escapeGraphHtml(source.description)+'</td></tr>';
+  }).join('');
+  document.getElementById('biologySourcesCard').innerHTML = '<div class="card-head"><div><h3>Disease biology data fabric</h3><div class="card-sub">Only connected sources are represented as live evidence.</div></div><span class="pill pill-select">'+workbench.sources.length+' sources</span></div>'+
+    (sourceRows ? '<div class="scrollbox"><table><thead><tr><th>Source</th><th>Status</th><th>Agent</th><th>Purpose</th></tr></thead><tbody>'+sourceRows+'</tbody></table></div>' : '<div class="small">No sources registered for this division.</div>');
 }
 
 function renderAgentFilters(){
@@ -508,7 +578,7 @@ function renderFooter(){
   document.getElementById('footerBox').innerHTML =
     '<p>This dashboard is served by the CADDTARD API itself (FastAPI + StaticFiles) &mdash; there is no local HTML file to open. '+
     'All data comes from same-origin <code>/api/*</code> endpoints backed by a persistent database (SQLite locally, Postgres in Docker Compose). '+
-    'v3.1 MVP implements the full seven-layer architecture: a Layer 1 data-source registry, a Layer 2 relational knowledge graph (Postgres-backed today, Neo4j-swappable per ARCHITECTURE.md), '+
+    'v3.2 MVP implements the full seven-layer architecture: a Layer 1 data-source registry, a Layer 2 relational knowledge graph (Postgres-backed today, Neo4j-swappable per ARCHITECTURE.md), '+
     'a Layer 3 agent taxonomy spanning Genomics/Disease Biology/Therapeutics/AI Science/Development, a Layer 4 evidence-graded reasoning engine, a Layer 5 lab operating system, '+
     'and this Layer 6 executive view. "Live agent" pills call real public sources now; "Reference" pills are reserved, honestly-labeled slots not yet wired up &mdash; see ARCHITECTURE.md for the full implemented-vs-planned map.</p>'+
     '<p>Full interactive API reference: <a href="/docs" target="_blank">/docs</a> (Swagger) or <a href="/redoc" target="_blank">/redoc</a>.</p>'+
@@ -537,7 +607,7 @@ document.getElementById('refreshAll').addEventListener('click', async function()
   btn.disabled = true;
   btn.textContent = 'Refreshing…';
   try{
-    await Promise.all([loadKPIs(), loadScoring(), loadAgents(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations()]);
+    await Promise.all([loadKPIs(), loadScoring(), loadAgents(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(), loadDiseaseBiologyWorkbench()]);
     btn.textContent = 'Data refreshed ✓';
     setTimeout(function(){ btn.textContent = oldText; }, 1500);
   }catch(e){
