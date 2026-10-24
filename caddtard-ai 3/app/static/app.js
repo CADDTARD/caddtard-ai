@@ -1,6 +1,9 @@
 const API = ""; // same-origin: dashboard is served by the same FastAPI app it talks to
 let selectedSlug = null;
 let candidatesCache = [];
+let compoundsCache = [];
+let selectedCompoundSlug = null;
+let compoundSearchTimer = null;
 
 var savedTheme = localStorage.getItem('caddtard-theme');
 if(savedTheme){ document.documentElement.setAttribute('data-theme', savedTheme); }
@@ -50,8 +53,8 @@ function fmtTime(iso){
 }
 
 async function loadKPIs(){
-  const [genes, scoring, candidates, agentsList, sourcesList] = await Promise.all([
-    api('/api/genes'), api('/api/scoring'), api('/api/candidates'), api('/api/agents'), api('/api/sources'),
+  const [genes, scoring, candidates, agentsList, sourcesList, compoundSummary] = await Promise.all([
+    api('/api/genes'), api('/api/scoring'), api('/api/candidates'), api('/api/agents'), api('/api/sources'), api('/api/compounds/summary'),
   ]);
   const top3Genes = genes.filter(function(g){return g.in_top3;});
   const topScore = Math.max.apply(null, scoring.map(function(s){return s.composite;}));
@@ -65,6 +68,7 @@ async function loadKPIs(){
     {n: topScore.toFixed(2), l:'Top composite score (of 5)'},
     {n: implementedAgents+' / '+agentsList.length, l:'Agents live (of full taxonomy)'},
     {n: connectedSources+' / '+sourcesList.length, l:'Data sources connected (of registry)'},
+    {n: compoundSummary.verified+' / '+compoundSummary.total, l:'Compounds independently verified'},
   ];
   document.getElementById('kpiRow').innerHTML = kpis.map(function(k){
     return '<div class="kpi"><div class="n">'+k.n+'</div><div class="l">'+k.l+'</div></div>';
@@ -308,6 +312,92 @@ async function loadDiseaseBiologyWorkbench(){
   document.getElementById('biologySourcesCard').innerHTML = '<div class="card-head"><div><h3>Disease biology data fabric</h3><div class="card-sub">Only connected sources are represented as live evidence.</div></div><span class="pill pill-select">'+workbench.sources.length+' sources</span></div>'+
     (sourceRows ? '<div class="scrollbox"><table><thead><tr><th>Source</th><th>Status</th><th>Agent</th><th>Purpose</th></tr></thead><tbody>'+sourceRows+'</tbody></table></div>' : '<div class="small">No sources registered for this division.</div>');
 }
+
+function compoundVerificationPill(status){
+  return '<span class="compound-verify '+escapeGraphHtml(status)+'">'+escapeGraphHtml(status)+'</span>';
+}
+
+function compoundRoleLabel(role){ return String(role || '').replace(/_/g, ' '); }
+
+function renderCompoundDetail(compound){
+  var evidence = (compound.evidence || []).map(function(item){
+    var title = escapeGraphHtml(item.title);
+    var heading = item.url
+      ? '<a href="'+escapeGraphHtml(item.url)+'" target="_blank" rel="noreferrer">'+title+' ↗</a>'
+      : '<strong>'+title+'</strong>';
+    return '<div class="evidence-item">'+heading+'<small>'+escapeGraphHtml(item.evidence_type.replace(/_/g,' '))+' · '+escapeGraphHtml(item.supports)+'</small></div>';
+  }).join('');
+  var identifiers = [
+    compound.cas_number ? 'CAS '+escapeGraphHtml(compound.cas_number) : '',
+    compound.pubchem_cid ? 'PubChem '+escapeGraphHtml(compound.pubchem_cid) : '',
+    compound.molecular_formula ? escapeGraphHtml(compound.molecular_formula) : '',
+    compound.molecular_weight ? compound.molecular_weight+' g/mol' : ''
+  ].filter(Boolean).join(' · ') || 'Exact registry identifiers incomplete';
+  document.getElementById('compoundDetail').innerHTML =
+    '<div class="flex-between"><span class="pill pill-select">Tier '+escapeGraphHtml(compound.tier)+'</span>'+compoundVerificationPill(compound.verification_status)+'</div>'+
+    '<h3>'+escapeGraphHtml(compound.name)+'</h3><div class="compound-subtitle">'+escapeGraphHtml(compound.chemical_class)+'<br>'+identifiers+'</div>'+
+    '<div class="identity-flags"><span class="identity-flag '+(compound.identity_verified?'yes':'')+'">'+(compound.identity_verified?'✓':'?')+' Identity</span><span class="identity-flag '+(compound.mechanism_verified?'yes':'')+'">'+(compound.mechanism_verified?'✓':'?')+' Mechanism</span><span class="identity-flag">0 FTO clearances</span></div>'+
+    '<div class="compound-caveat"><b>Limitation:</b> '+escapeGraphHtml(compound.caveat)+'</div>'+
+    '<div class="compound-detail-section"><span>Role / target</span><p><b>'+escapeGraphHtml(compoundRoleLabel(compound.role))+'</b><br>'+escapeGraphHtml(compound.target_site)+'</p></div>'+
+    '<div class="compound-detail-section"><span>Potency interpretation</span><p>'+escapeGraphHtml(compound.potency)+'</p></div>'+
+    '<div class="compound-detail-section"><span>Platform fit</span><p>'+escapeGraphHtml(compound.platform_fit)+'</p></div>'+
+    '<div class="compound-detail-section"><span>Development / availability</span><p>'+escapeGraphHtml(compound.development_status)+'<br><br>'+escapeGraphHtml(compound.availability_note)+'</p></div>'+
+    '<div class="compound-detail-section"><span>Evidence ledger</span><div class="evidence-list">'+evidence+'</div></div>';
+}
+
+function renderCompoundGrid(){
+  var grid = document.getElementById('compoundGrid');
+  document.getElementById('compoundCount').textContent = compoundsCache.length+' records shown';
+  if(!compoundsCache.length){
+    grid.innerHTML = '<div class="card"><div class="small">No compounds match the current verification filters.</div></div>';
+    document.getElementById('compoundDetail').innerHTML = '<div class="small">Adjust the filters to inspect a compound.</div>';
+    return;
+  }
+  if(!selectedCompoundSlug || !compoundsCache.some(function(c){return c.slug===selectedCompoundSlug;})) selectedCompoundSlug = compoundsCache[0].slug;
+  grid.innerHTML = compoundsCache.map(function(c){
+    var selected = c.slug === selectedCompoundSlug ? ' active' : '';
+    return '<button type="button" class="compound-card'+selected+'" data-compound="'+escapeGraphHtml(c.slug)+'">'+
+      '<div class="compound-card-head"><h3>'+escapeGraphHtml(c.name)+'</h3>'+compoundVerificationPill(c.verification_status)+'</div>'+
+      '<div class="compound-meta"><span class="pill pill-static">Tier '+escapeGraphHtml(c.tier)+'</span><span class="pill pill-select">'+escapeGraphHtml(compoundRoleLabel(c.role))+'</span></div>'+
+      '<p>'+escapeGraphHtml(c.target_site)+'</p></button>';
+  }).join('');
+  Array.prototype.forEach.call(grid.querySelectorAll('[data-compound]'), function(card){
+    card.addEventListener('click', function(){
+      selectedCompoundSlug = card.getAttribute('data-compound');
+      renderCompoundGrid();
+    });
+  });
+  renderCompoundDetail(compoundsCache.find(function(c){return c.slug===selectedCompoundSlug;}));
+}
+
+async function loadCompounds(){
+  var summary = await api('/api/compounds/summary');
+  var kpis = [
+    {n:summary.total,l:'Landscape records'},
+    {n:summary.verified,l:'Identity + mechanism verified'},
+    {n:summary.partial,l:'Partially verified'},
+    {n:summary.unverified,l:'Quarantined / unverified'},
+    {n:summary.direct_inhibitors,l:'Direct-inhibitor records'},
+    {n:summary.fto_cleared,l:'FTO clearances completed'},
+  ];
+  document.getElementById('compoundKpis').innerHTML = kpis.map(function(k){return '<div class="kpi"><div class="n">'+k.n+'</div><div class="l">'+k.l+'</div></div>';}).join('');
+  var params = new URLSearchParams();
+  var q = document.getElementById('compoundSearch').value.trim();
+  var tier = document.getElementById('compoundTier').value;
+  var role = document.getElementById('compoundRole').value;
+  var verification = document.getElementById('compoundVerification').value;
+  if(q) params.set('q',q); if(tier) params.set('tier',tier); if(role) params.set('role',role); if(verification) params.set('verification',verification);
+  compoundsCache = await api('/api/compounds'+(params.toString()?'?'+params.toString():''));
+  renderCompoundGrid();
+}
+
+['compoundTier','compoundRole','compoundVerification'].forEach(function(id){
+  document.getElementById(id).addEventListener('change', loadCompounds);
+});
+document.getElementById('compoundSearch').addEventListener('input', function(){
+  clearTimeout(compoundSearchTimer);
+  compoundSearchTimer = setTimeout(loadCompounds, 220);
+});
 
 function renderAgentFilters(){
   const box = document.getElementById('agentFilters');
@@ -596,7 +686,7 @@ async function boot(){
   }
   await Promise.all([
     loadKPIs(), loadScoring(), loadCandidateTabs(), loadAgents(),
-    loadSources(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(),
+    loadSources(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(), loadCompounds(),
   ]);
   renderFooter();
 }
@@ -607,7 +697,7 @@ document.getElementById('refreshAll').addEventListener('click', async function()
   btn.disabled = true;
   btn.textContent = 'Refreshing…';
   try{
-    await Promise.all([loadKPIs(), loadScoring(), loadAgents(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(), loadDiseaseBiologyWorkbench()]);
+    await Promise.all([loadKPIs(), loadScoring(), loadAgents(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(), loadDiseaseBiologyWorkbench(), loadCompounds()]);
     btn.textContent = 'Data refreshed ✓';
     setTimeout(function(){ btn.textContent = oldText; }, 1500);
   }catch(e){

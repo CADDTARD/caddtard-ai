@@ -174,6 +174,50 @@ class DataSourceOut(BaseModel):
     description: str
 
 
+class CompoundEvidenceOut(BaseModel):
+    title: str
+    url: str = ""
+    evidence_type: str
+    supports: str
+
+
+class CompoundOut(BaseModel):
+    id: int
+    slug: str
+    name: str
+    tier: str
+    role: str
+    verification_status: str
+    identity_verified: bool
+    mechanism_verified: bool
+    chemical_class: str
+    cas_number: str
+    molecular_formula: str
+    molecular_weight: float | None = None
+    pubchem_cid: str
+    target_site: str
+    potency: str
+    development_status: str
+    availability_note: str
+    platform_fit: str
+    caveat: str
+    evidence: list[CompoundEvidenceOut] = []
+    source_report: str
+    reviewed_at: datetime
+
+
+class CompoundSummaryOut(BaseModel):
+    total: int
+    verified: int
+    partial: int
+    unverified: int
+    direct_inhibitors: int
+    comparators: int
+    identity_verified: int
+    mechanism_verified: int
+    fto_cleared: int = 0
+
+
 # --- Layer 2: Knowledge Graph ---
 class GraphNodeOut(BaseModel):
     id: int

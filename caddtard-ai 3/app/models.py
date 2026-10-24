@@ -202,6 +202,38 @@ class DataSource(Base):
 
 
 # ---------------------------------------------------------------------------
+# Verified compound landscape.  These rows deliberately separate chemical
+# identity, mechanism evidence and IP/FTO review: a literature-backed target
+# claim is not the same thing as an independently cleared development asset.
+# ---------------------------------------------------------------------------
+class Compound(Base):
+    __tablename__ = "compounds"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128), index=True)
+    tier: Mapped[str] = mapped_column(String(8), index=True)  # A | B | C | appendix
+    role: Mapped[str] = mapped_column(String(32), index=True)  # direct_inhibitor | pathway_adjacent | comparator | benchmark | thin_data
+    verification_status: Mapped[str] = mapped_column(String(16), index=True)  # verified | partial | unverified
+    identity_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    mechanism_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    chemical_class: Mapped[str] = mapped_column(String(256), default="")
+    cas_number: Mapped[str] = mapped_column(String(128), default="")
+    molecular_formula: Mapped[str] = mapped_column(String(128), default="")
+    molecular_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pubchem_cid: Mapped[str] = mapped_column(String(32), default="")
+    target_site: Mapped[str] = mapped_column(Text, default="")
+    potency: Mapped[str] = mapped_column(Text, default="")
+    development_status: Mapped[str] = mapped_column(Text, default="")
+    availability_note: Mapped[str] = mapped_column(Text, default="")
+    platform_fit: Mapped[str] = mapped_column(Text, default="")
+    caveat: Mapped[str] = mapped_column(Text, default="")
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
+    source_report: Mapped[str] = mapped_column(String(256), default="CADDTARD AI V-ATPase Pathway Compound Landscape")
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+# ---------------------------------------------------------------------------
 # Layer 2 - Scientific Knowledge Graph. Modeled relationally (nodes/edges
 # tables) so it is fully queryable and testable with only Postgres/SQLite.
 # The API talks to a small GraphStore interface (app/graph/store.py), not
