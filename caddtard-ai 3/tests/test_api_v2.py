@@ -6,9 +6,9 @@ def test_sources_list_and_counts(client):
     resp = client.get("/api/sources")
     assert resp.status_code == 200
     sources = resp.json()
-    assert len(sources) == 33
+    assert len(sources) == 39
     connected = [s for s in sources if s["status"] == "connected"]
-    assert len(connected) == 12
+    assert len(connected) == 19
     keys = {s["key"] for s in connected}
     assert {"uniprot", "pubmed", "pdb", "quickgo"}.issubset(keys)
 
@@ -17,21 +17,21 @@ def test_sources_filter_by_status(client):
     resp = client.get("/api/sources", params={"status": "planned"})
     assert resp.status_code == 200
     assert all(s["status"] == "planned" for s in resp.json())
-    assert len(resp.json()) == 21
+    assert len(resp.json()) == 19
 
 
 def test_agents_division_filter(client):
     resp = client.get("/api/agents", params={"division": "Genomics"})
     assert resp.status_code == 200
     body = resp.json()
-    assert len(body) == 7
+    assert len(body) == 8
     assert all(a["division"] == "Genomics" for a in body)
 
 
 def test_agents_status_filter(client):
     resp = client.get("/api/agents", params={"status": "implemented"})
     assert resp.status_code == 200
-    assert len(resp.json()) == 12
+    assert len(resp.json()) == 20
 
 
 def test_agents_divisions_endpoint(client):
@@ -40,6 +40,20 @@ def test_agents_divisions_endpoint(client):
     divisions = resp.json()
     assert "Genomics" in divisions
     assert "Development" in divisions
+
+
+def test_disease_biology_workbench(client):
+    resp = client.get("/api/agents/disease-biology/workbench")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["division"] == "Disease Biology"
+    assert body["counts"]["total"] == 10
+    assert body["counts"]["implemented"] == 2
+    assert body["counts"]["planned"] == 8
+    keys = {agent["key"] for agent in body["agents"]}
+    assert {"disease_phenotype", "who_burden"}.issubset(keys)
+    assert all(agent["status"] in {"implemented", "planned"} for agent in body["agents"])
+    assert all(source["agent_key"] in keys for source in body["sources"])
 
 
 def test_trigger_planned_agent_returns_409(client):
@@ -182,3 +196,14 @@ def test_dashboard_health_portfolio(client):
     body = resp.json()
     assert len(body) == 3
     assert {h["candidate_slug"] for h in body} == {"drta", "atp6v0c", "tcirg1"}
+
+
+def test_operations_summary(client):
+    resp = client.get("/api/ops/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["vendor_count"] >= 1
+    assert body["study_count"] >= 1
+    assert body["demo_study_count"] == 1
+    assert body["studies"][0]["is_demo"] is True
+    assert body["readiness"]

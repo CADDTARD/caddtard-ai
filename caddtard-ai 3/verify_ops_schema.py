@@ -24,8 +24,10 @@ import csv
 import io
 import sqlite3
 import sys
+from pathlib import Path
 
-sys.path.insert(0, "caddtard-ai")
+PROJECT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_DIR))
 from app import seed_data_v3  # noqa: E402
 from app.ops_logic import (  # noqa: E402
     GoNoGoInput,
@@ -120,15 +122,13 @@ def sql_import_readiness(row):
 
 
 # (a) every shipped CSV template parses and its EXAMPLE row imports cleanly
-import os
-
-template_dir = "caddtard-ai/import_templates"
-templates = sorted(os.listdir(template_dir))
+template_dir = PROJECT_DIR / "import_templates"
+templates = sorted(path.name for path in template_dir.iterdir() if path.suffix == ".csv")
 check("8 CSV import templates are present", len(templates) == 8)
 
 vendor_row = None
 for fname in templates:
-    with open(os.path.join(template_dir, fname)) as fh:
+    with (template_dir / fname).open() as fh:
         rows = list(csv.DictReader(fh))
     ok = len(rows) == 1 and all(v is not None for v in rows[0].values())
     check(f"{fname} parses to exactly 1 well-formed EXAMPLE row", ok)

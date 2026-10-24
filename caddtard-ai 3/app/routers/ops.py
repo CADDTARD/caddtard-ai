@@ -8,7 +8,7 @@ drift from what actually gets inserted.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -48,6 +48,31 @@ router = APIRouter(prefix="/api/ops", tags=["operations"])
 class CsvImportBody(BaseModel):
     csv_text: str
     source: str = "manual_upload"
+
+
+@router.get("/summary")
+def operations_summary(db: Session = Depends(get_db)):
+    """One lightweight dashboard payload for the operational MVP."""
+    readiness_rows = db.execute(
+        select(
+            ReadinessRequirement.candidate_slug,
+            ReadinessRequirement.evidence_status,
+            func.count(ReadinessRequirement.id),
+        ).group_by(ReadinessRequirement.candidate_slug, ReadinessRequirement.evidence_status)
+    ).all()
+    readiness: dict[str, dict[str, int]] = {}
+    for slug, evidence_status, count in readiness_rows:
+        readiness.setdefault(slug, {})[evidence_status] = count
+
+    studies = db.scalars(select(Study).order_by(Study.updated_at.desc())).all()
+    return {
+        "vendor_count": db.scalar(select(func.count(CroVendor.id))) or 0,
+        "study_count": len(studies),
+        "active_study_count": sum(1 for study in studies if study.status == "active"),
+        "demo_study_count": sum(1 for study in studies if study.is_demo),
+        "studies": studies,
+        "readiness": readiness,
+    }
 
 
 # --- CRO / vendor registry -------------------------------------------------

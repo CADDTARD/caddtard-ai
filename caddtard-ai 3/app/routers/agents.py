@@ -1,10 +1,13 @@
+import json
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agents.registry import AGENT_FUNCTIONS
 from app.database import get_db
-from app.models import AgentDefinition, AgentRun
+from app.models import AgentDefinition, AgentRun, DataSource
 from app.schemas import AgentDefinitionOut, AgentRunDetailOut, AgentRunOut
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -53,6 +56,87 @@ def list_agents(
 def list_divisions(db: Session = Depends(get_db)):
     rows = db.scalars(select(AgentDefinition.division).distinct().order_by(AgentDefinition.division)).all()
     return list(rows)
+
+
+@router.get("/disease-biology/workbench")
+def disease_biology_workbench(db: Session = Depends(get_db)):
+    """Read-only interface payload for the Disease Biology division.
+
+    The public dashboard uses this aggregate instead of reconstructing agent
+    state with many requests.  It exposes scheduled-run evidence only; manual
+    execution remains a separate protected administrative operation.
+    """
+    definitions = db.scalars(
+        select(AgentDefinition)
+        .where(AgentDefinition.division == "Disease Biology")
+        .order_by(AgentDefinition.status.desc(), AgentDefinition.name)
+    ).all()
+    keys = [definition.key for definition in definitions]
+    sources = db.scalars(
+        select(DataSource)
+        .where(DataSource.agent_key.in_(keys))
+        .order_by(DataSource.status.desc(), DataSource.name)
+    ).all() if keys else []
+
+    agents_payload = []
+    for definition in definitions:
+        latest = db.scalar(
+            select(AgentRun)
+            .where(AgentRun.agent_name == definition.key)
+            .order_by(AgentRun.started_at.desc())
+        ) if definition.status == "implemented" else None
+        detail = {}
+        if latest and latest.detail_json:
+            try:
+                detail = json.loads(latest.detail_json)
+            except json.JSONDecodeError:
+                detail = {"raw": latest.detail_json}
+        agents_payload.append({
+            "key": definition.key,
+            "name": definition.name,
+            "description": definition.description,
+            "status": definition.status,
+            "interval_minutes": definition.interval_minutes,
+            "latest_run": ({
+                "id": latest.id,
+                "status": latest.status,
+                "trigger": latest.trigger,
+                "started_at": latest.started_at,
+                "finished_at": latest.finished_at,
+                "summary": latest.summary,
+                "detail": detail,
+            } if latest else None),
+        })
+
+    implemented = sum(agent["status"] == "implemented" for agent in agents_payload)
+    healthy = sum(
+        agent["latest_run"] is not None and agent["latest_run"]["status"] == "success"
+        for agent in agents_payload
+    )
+    return {
+        "division": "Disease Biology",
+        "generated_at": datetime.now(timezone.utc),
+        "counts": {
+            "total": len(agents_payload),
+            "implemented": implemented,
+            "planned": len(agents_payload) - implemented,
+            "healthy_latest_runs": healthy,
+            "connected_sources": sum(source.status == "connected" for source in sources),
+        },
+        "agents": agents_payload,
+        "sources": [
+            {
+                "key": source.key,
+                "name": source.name,
+                "status": source.status,
+                "integration_type": source.integration_type,
+                "agent_key": source.agent_key,
+                "url": source.url,
+                "description": source.description,
+            }
+            for source in sources
+        ],
+    }
 
 
 def _get_definition_or_404(key: str, db: Session) -> AgentDefinition:

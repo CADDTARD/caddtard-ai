@@ -8,7 +8,7 @@ import os
 import tempfile
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{_tmp_db.name}")
 os.environ["AGENTS_ENABLED"] = "false"  # tests should not spin up the real scheduler
 
 import pytest  # noqa: E402

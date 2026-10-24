@@ -1,4 +1,4 @@
-# CADDTARD AI v3.0
+# CADDTARD AI v3.1 MVP
 
 Computer-Aided Drug Design Targeting Rare Disease — V-ATPase loss-of-function program.
 
@@ -12,6 +12,10 @@ planned, with exact counts, so you know precisely what's real before you build o
 operational layer — CRO/vendor registry, sample chain-of-custody, assay acceptance,
 cost tracking, and go/no-go governance — importable via CSV, never fabricated.
 See the "v3.0 operational layer" section below and `ARCHITECTURE.md`'s Layer 7.
+**New in v3.1 MVP:** the dashboard health-path defect is fixed, the operational
+layer is visible in the dashboard, Alembic owns database migrations, readiness
+verifies the database plus all expected scheduler jobs, startup seeding is
+transaction-safe, and CI tests SQLite, PostgreSQL, and the production image.
 **Want this actually running on the internet, not just in this repo?** See
 [DEPLOY.md](./DEPLOY.md).
 
@@ -88,7 +92,7 @@ docker compose up --build
 - Postgres is provisioned automatically with a named volume (`caddtard_pgdata`) for
   persistence across restarts.
 - The `api` service will not report healthy until `db` passes its own healthcheck
-  (`pg_isready`), and `api`'s own healthcheck hits `/health`.
+  (`pg_isready`), and `api`'s own healthcheck hits `/health/ready`.
 
 Stop with `docker compose down` (add `-v` to also drop the Postgres volume).
 
@@ -97,6 +101,7 @@ Stop with `docker compose down` (add `-v` to also drop the Postgres volume).
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -123,7 +128,7 @@ Full interactive reference at `/docs` once running. Summary:
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | Liveness probe, no dependencies |
-| `GET /health/ready` | Readiness probe — checks DB connectivity + scheduler state, returns 503 if not ready |
+| `GET /health/ready` | Readiness probe — checks DB connectivity, scheduler state, and registered-vs-expected job count; returns 503 if not ready |
 | `GET /api/genes?top3_only=&status=` | The 13-gene verified reference table |
 | `GET /api/genes/{symbol}` | One gene + its variants |
 | `GET /api/variants?gene=` | Variant-level rows from the originally uploaded LOF data.xlsx |
@@ -158,6 +163,7 @@ Full interactive reference at `/docs` once running. Summary:
 | `POST /api/ops/studies/{id}/costs/import`, `GET .../cost-summary` | Cost tracking + variance |
 | `POST /api/ops/studies/{id}/go-no-go/compute`, `POST /api/ops/go-no-go/{id}/review` | System-proposed go/no-go + required human review |
 | `POST /api/ops/readiness/{category}/import`, `GET /api/ops/readiness/{slug}` | CMC/nonclinical/regulatory readiness ledger |
+| `GET /api/ops/summary` | Dashboard payload for vendor, study, and evidence-readiness oversight |
 
 ## The 20 implemented agents
 
@@ -207,16 +213,11 @@ see the whole pipeline work without mistaking it for real data. Full write-up:
   design (no live external source for CRO/CMC data exists), and there is no
   React/Next.js/GraphQL/Kubernetes/ML layer in this build (the REST API and
   dashboard are complete and don't require one to be useful).
-- This codebase was written and statically checked (`python -m py_compile` on every
-  module, plus a standalone re-implementation of the schema and seed data validated
-  against SQLite) in an environment without outbound access to PyPI or a Docker
-  daemon, so `pip install`, `docker build`, and the live pytest run could not be
-  executed end-to-end before delivery (unchanged limitation in v3.0 - the new code
-  was checked with `py_compile`, unit-tested directly where dependency-free
-  (`app/ops_logic.py`), and schema/logic-verified via raw-sqlite3 reimplementation:
-  `verify_schema.py`, `verify_schema_v3.py`, `verify_ops_schema.py`, all passing). Run `docker compose up --build` or the local
-  venv steps above as the first real execution, and treat any failure there as a
-  normal first-run bug report, not a sign the architecture is wrong.
+- The v3.1 MVP has been executed locally with its pinned dependencies: the FastAPI
+  suite passes 60 tests, the initial Alembic migration upgrades a clean database
+  with no pending schema operations, and all three standalone schema/logic checks
+  pass. CI repeats the suite on SQLite and PostgreSQL and builds the production
+  image. A live host deployment remains the final infrastructure proof point.
 - The prioritization scores in `/api/scoring` are the same qualitative,
   expert-judgment rubric from the prior report — not a licensed market-sizing model.
 - The `open_high_risk_flags` count in `/api/dashboard/health` is a small static

@@ -1,12 +1,20 @@
 const API = ""; // same-origin: dashboard is served by the same FastAPI app it talks to
 let selectedSlug = null;
 let candidatesCache = [];
+let compoundsCache = [];
+let selectedCompoundSlug = null;
+let compoundSearchTimer = null;
+let pocCache = null;
+let pocView = 'plain';
 
+var savedTheme = localStorage.getItem('caddtard-theme');
+if(savedTheme){ document.documentElement.setAttribute('data-theme', savedTheme); }
 document.getElementById('toggleTheme').addEventListener('click', function(){
   var html = document.documentElement;
-  var isDark = html.getAttribute('data-theme') === 'dark';
-  html.setAttribute('data-theme', isDark ? 'light' : 'dark');
-  this.textContent = isDark ? 'Dark mode' : 'Light mode';
+  var nextTheme = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', nextTheme);
+  localStorage.setItem('caddtard-theme', nextTheme);
+  this.setAttribute('aria-label', nextTheme === 'dark' ? 'Use light theme' : 'Use dark theme');
 });
 
 async function api(path, opts){
@@ -21,6 +29,7 @@ async function api(path, opts){
 
 function showConnectionError(err){
   const el = document.getElementById('connectionBanner');
+  el.hidden = false;
   el.style.display = 'block';
   el.textContent = 'Could not reach the CADDTARD API at this origin (' + err.message + '). Confirm the backend container is running and this page was loaded from the same host/port as the API (default http://localhost:8000/).';
 }
@@ -46,8 +55,8 @@ function fmtTime(iso){
 }
 
 async function loadKPIs(){
-  const [genes, scoring, candidates, agentsList, sourcesList] = await Promise.all([
-    api('/api/genes'), api('/api/scoring'), api('/api/candidates'), api('/api/agents'), api('/api/sources'),
+  const [genes, scoring, candidates, agentsList, sourcesList, compoundSummary] = await Promise.all([
+    api('/api/genes'), api('/api/scoring'), api('/api/candidates'), api('/api/agents'), api('/api/sources'), api('/api/compounds/summary'),
   ]);
   const top3Genes = genes.filter(function(g){return g.in_top3;});
   const topScore = Math.max.apply(null, scoring.map(function(s){return s.composite;}));
@@ -61,6 +70,7 @@ async function loadKPIs(){
     {n: topScore.toFixed(2), l:'Top composite score (of 5)'},
     {n: implementedAgents+' / '+agentsList.length, l:'Agents live (of full taxonomy)'},
     {n: connectedSources+' / '+sourcesList.length, l:'Data sources connected (of registry)'},
+    {n: compoundSummary.verified+' / '+compoundSummary.total, l:'Compounds independently verified'},
   ];
   document.getElementById('kpiRow').innerHTML = kpis.map(function(k){
     return '<div class="kpi"><div class="n">'+k.n+'</div><div class="l">'+k.l+'</div></div>';
@@ -96,7 +106,7 @@ async function loadCandidateTabs(){
 async function loadSelectedCandidatePanels(){
   await Promise.all([
     loadCandidateDetail(), loadTimeline(), loadCost(), loadChecklist(),
-    loadGraphForSelected(), loadHypotheses(), loadExperiments(),
+    loadGraphForSelected(), loadHypotheses(), loadExperiments(), loadDiseaseBiologyWorkbench(),
   ]);
 }
 
@@ -210,7 +220,7 @@ async function loadAgents(){
            '<div>'+ (last.summary || '') + '</div>')
         : '<div class="small">No runs yet &mdash; first scheduled run happens shortly after startup.</div>';
       foot = '<span>'+a.division+' &middot; every '+a.interval_minutes+' min</span>'+
-        '<button data-agent="'+a.key+'" class="runBtn">Run now</button>';
+        '<span class="scheduled-chip">Scheduled automatically</span>';
     } else {
       body = '<div class="small">Reserved slot in the ~100-agent taxonomy &mdash; interface defined, not yet wired to a live source.</div>';
       foot = '<span>'+a.division+' &middot; planned</span>';
@@ -218,17 +228,178 @@ async function loadAgents(){
     return agentCard('agent-'+a.key, a.name, a.description, pill, body, foot);
   }).join('');
 
-  Array.prototype.forEach.call(document.querySelectorAll('.runBtn'), function(btn){
-    btn.addEventListener('click', async function(){
-      btn.disabled = true; btn.textContent = 'Running...';
-      try{
-        await api('/api/agents/' + btn.getAttribute('data-agent') + '/run', {method:'POST'});
-        setTimeout(loadAgents, 3000); // give the background task a moment to finish
-      }catch(e){ alert('Could not trigger agent: ' + e.message); }
-      finally{ btn.disabled = false; btn.textContent = 'Run now'; }
+}
+
+function biologyStage(state, step, title, description, meta){
+  var cls = state === 'live' ? 'is-live' : (state === 'active' ? 'is-active' : 'is-planned');
+  var label = state === 'live' ? 'LIVE' : (state === 'active' ? 'CONNECTED' : 'PLANNED');
+  return '<div class="biology-stage '+cls+'"><div class="biology-stage-index">'+step+'</div><div><div class="biology-stage-label">'+label+'</div><h4>'+escapeGraphHtml(title)+'</h4><p>'+escapeGraphHtml(description)+'</p><small>'+escapeGraphHtml(meta || '')+'</small></div></div>';
+}
+
+function biologyRunDetail(agent){
+  if(!agent.latest_run) return '<div class="small">Awaiting the first scheduled run.</div>';
+  var run = agent.latest_run;
+  var detail = run.detail || {};
+  var facts = [];
+  if(Array.isArray(detail.genes)){
+    facts = detail.genes.slice(0,4).map(function(g){
+      return '<span class="biology-fact">'+escapeGraphHtml(g.gene)+(g.monarch_hit ? ' · '+escapeGraphHtml(g.monarch_hit) : '')+'</span>';
+    });
+  } else if(Array.isArray(detail.searches)){
+    var named = detail.searches.filter(function(s){return s.who_gho_has_named_indicator;}).length;
+    facts.push('<span class="biology-fact">'+named+' named WHO indicators</span>');
+    detail.searches.slice(0,3).forEach(function(s){ facts.push('<span class="biology-fact">'+escapeGraphHtml(s.term)+'</span>'); });
+  } else if(detail.error){
+    facts.push('<span class="biology-fact danger">'+escapeGraphHtml(detail.error)+'</span>');
+  }
+  return '<div class="biology-run-head">'+statusPill(run.status)+'<span class="small">'+fmtTime(run.finished_at || run.started_at)+'</span></div>'+
+    '<p>'+escapeGraphHtml(run.summary || 'Scheduled run completed.')+'</p>'+
+    (facts.length ? '<div class="biology-facts">'+facts.join('')+'</div>' : '');
+}
+
+async function loadDiseaseBiologyWorkbench(){
+  var programs = candidatesCache.length ? candidatesCache : await api('/api/candidates');
+  if(!selectedSlug && programs.length) selectedSlug = programs[0].slug;
+  var responses = await Promise.all([
+    api('/api/agents/disease-biology/workbench'),
+    api('/api/candidates/' + selectedSlug),
+    api('/api/hypotheses?candidate=' + encodeURIComponent(selectedSlug)),
+  ]);
+  var workbench = responses[0], candidate = responses[1], hypotheses = responses[2];
+  var implemented = workbench.agents.filter(function(a){return a.status === 'implemented';});
+  var agentByKey = {};
+  workbench.agents.forEach(function(a){agentByKey[a.key] = a;});
+
+  document.getElementById('biologyProgramTitle').textContent = candidate.name;
+  document.getElementById('biologyProgramSummary').innerHTML =
+    '<strong>'+escapeGraphHtml(candidate.genes)+'</strong> · '+escapeGraphHtml(candidate.organ)+' · '+escapeGraphHtml(candidate.inheritance)+
+    '<br><span class="small">Mechanistic focus: '+escapeGraphHtml(candidate.mechanism)+'</span>';
+
+  var kpis = [
+    {n: workbench.counts.implemented+' / '+workbench.counts.total, l:'Disease biology agents live'},
+    {n: workbench.counts.healthy_latest_runs, l:'Healthy latest scheduled runs'},
+    {n: workbench.counts.connected_sources, l:'Connected biology sources'},
+    {n: hypotheses.length, l:'Evidence-graded hypotheses for program'},
+  ];
+  document.getElementById('biologyKpis').innerHTML = kpis.map(function(k){
+    return '<div class="kpi"><div class="n">'+k.n+'</div><div class="l">'+k.l+'</div></div>';
+  }).join('');
+
+  var diseaseLive = agentByKey.disease_phenotype && agentByKey.disease_phenotype.latest_run && agentByKey.disease_phenotype.latest_run.status === 'success';
+  var burdenLive = agentByKey.who_burden && agentByKey.who_burden.latest_run && agentByKey.who_burden.latest_run.status === 'success';
+  document.getElementById('biologyPipeline').innerHTML = [
+    biologyStage(diseaseLive?'live':'active','01','Disease resolution','Normalize genes, diseases and cross-species phenotype links.','Monarch Initiative'),
+    biologyStage(diseaseLive?'active':'planned','02','Phenotype profile','Organize gene-associated phenotypes into a program-ready signature.','Phenotype interface staged'),
+    biologyStage(burdenLive?'live':'active','03','Burden & natural history','Separate measured burden from explicit evidence gaps.','WHO GHO + natural-history interface'),
+    biologyStage('planned','04','Cell & pathway systems','Connect lysosome, autophagy, mitochondria and immune biology.','Reserved specialist agents'),
+    biologyStage(hypotheses.length?'active':'planned','05','Experimental handoff','Translate open causal links into testable biological experiments.',hypotheses.length+' active hypothesis chains'),
+  ].join('');
+
+  document.getElementById('biologyEvidenceFeed').innerHTML = implemented.map(function(agent){
+    return '<article class="biology-evidence-item"><div class="flex-between"><h4>'+escapeGraphHtml(agent.name)+'</h4><span class="small">every '+agent.interval_minutes+' min</span></div>'+biologyRunDetail(agent)+'</article>';
+  }).join('') || '<div class="small">No Disease Biology agents are implemented yet.</div>';
+
+  document.getElementById('biologyAgentGrid').innerHTML = workbench.agents.map(function(agent){
+    var pill = agent.status === 'implemented' ? livePill() : '<span class="pill pill-static">interface reserved</span>';
+    var body = agent.status === 'implemented'
+      ? biologyRunDetail(agent)
+      : '<p class="small">'+escapeGraphHtml(agent.description)+'</p><div class="biology-interface-note">Defined contract · awaiting validated data source</div>';
+    return agentCard('biology-agent-'+agent.key, escapeGraphHtml(agent.name), escapeGraphHtml(agent.description), pill, body,
+      agent.status === 'implemented' ? '<span>Scheduled every '+agent.interval_minutes+' min</span><span>Read only</span>' : '<span>Planned capability</span>');
+  }).join('');
+
+  var sourceRows = workbench.sources.map(function(source){
+    return '<tr><td><b>'+escapeGraphHtml(source.name)+'</b><div class="small">'+escapeGraphHtml(source.integration_type)+'</div></td><td>'+(source.status==='connected'?livePill():staticPill())+'</td><td>'+escapeGraphHtml(source.agent_key)+'</td><td class="small">'+escapeGraphHtml(source.description)+'</td></tr>';
+  }).join('');
+  document.getElementById('biologySourcesCard').innerHTML = '<div class="card-head"><div><h3>Disease biology data fabric</h3><div class="card-sub">Only connected sources are represented as live evidence.</div></div><span class="pill pill-select">'+workbench.sources.length+' sources</span></div>'+
+    (sourceRows ? '<div class="scrollbox"><table><thead><tr><th>Source</th><th>Status</th><th>Agent</th><th>Purpose</th></tr></thead><tbody>'+sourceRows+'</tbody></table></div>' : '<div class="small">No sources registered for this division.</div>');
+}
+
+function compoundVerificationPill(status){
+  return '<span class="compound-verify '+escapeGraphHtml(status)+'">'+escapeGraphHtml(status)+'</span>';
+}
+
+function compoundRoleLabel(role){ return String(role || '').replace(/_/g, ' '); }
+
+function renderCompoundDetail(compound){
+  var evidence = (compound.evidence || []).map(function(item){
+    var title = escapeGraphHtml(item.title);
+    var heading = item.url
+      ? '<a href="'+escapeGraphHtml(item.url)+'" target="_blank" rel="noreferrer">'+title+' ↗</a>'
+      : '<strong>'+title+'</strong>';
+    return '<div class="evidence-item">'+heading+'<small>'+escapeGraphHtml(item.evidence_type.replace(/_/g,' '))+' · '+escapeGraphHtml(item.supports)+'</small></div>';
+  }).join('');
+  var identifiers = [
+    compound.cas_number ? 'CAS '+escapeGraphHtml(compound.cas_number) : '',
+    compound.pubchem_cid ? 'PubChem '+escapeGraphHtml(compound.pubchem_cid) : '',
+    compound.molecular_formula ? escapeGraphHtml(compound.molecular_formula) : '',
+    compound.molecular_weight ? compound.molecular_weight+' g/mol' : ''
+  ].filter(Boolean).join(' · ') || 'Exact registry identifiers incomplete';
+  document.getElementById('compoundDetail').innerHTML =
+    '<div class="flex-between"><span class="pill pill-select">Tier '+escapeGraphHtml(compound.tier)+'</span>'+compoundVerificationPill(compound.verification_status)+'</div>'+
+    '<h3>'+escapeGraphHtml(compound.name)+'</h3><div class="compound-subtitle">'+escapeGraphHtml(compound.chemical_class)+'<br>'+identifiers+'</div>'+
+    '<div class="identity-flags"><span class="identity-flag '+(compound.identity_verified?'yes':'')+'">'+(compound.identity_verified?'✓':'?')+' Identity</span><span class="identity-flag '+(compound.mechanism_verified?'yes':'')+'">'+(compound.mechanism_verified?'✓':'?')+' Mechanism</span><span class="identity-flag">0 FTO clearances</span></div>'+
+    '<div class="compound-caveat"><b>Limitation:</b> '+escapeGraphHtml(compound.caveat)+'</div>'+
+    '<div class="compound-detail-section"><span>Role / target</span><p><b>'+escapeGraphHtml(compoundRoleLabel(compound.role))+'</b><br>'+escapeGraphHtml(compound.target_site)+'</p></div>'+
+    '<div class="compound-detail-section"><span>Potency interpretation</span><p>'+escapeGraphHtml(compound.potency)+'</p></div>'+
+    '<div class="compound-detail-section"><span>Platform fit</span><p>'+escapeGraphHtml(compound.platform_fit)+'</p></div>'+
+    '<div class="compound-detail-section"><span>Development / availability</span><p>'+escapeGraphHtml(compound.development_status)+'<br><br>'+escapeGraphHtml(compound.availability_note)+'</p></div>'+
+    '<div class="compound-detail-section"><span>Evidence ledger</span><div class="evidence-list">'+evidence+'</div></div>';
+}
+
+function renderCompoundGrid(){
+  var grid = document.getElementById('compoundGrid');
+  document.getElementById('compoundCount').textContent = compoundsCache.length+' records shown';
+  if(!compoundsCache.length){
+    grid.innerHTML = '<div class="card"><div class="small">No compounds match the current verification filters.</div></div>';
+    document.getElementById('compoundDetail').innerHTML = '<div class="small">Adjust the filters to inspect a compound.</div>';
+    return;
+  }
+  if(!selectedCompoundSlug || !compoundsCache.some(function(c){return c.slug===selectedCompoundSlug;})) selectedCompoundSlug = compoundsCache[0].slug;
+  grid.innerHTML = compoundsCache.map(function(c){
+    var selected = c.slug === selectedCompoundSlug ? ' active' : '';
+    return '<button type="button" class="compound-card'+selected+'" data-compound="'+escapeGraphHtml(c.slug)+'">'+
+      '<div class="compound-card-head"><h3>'+escapeGraphHtml(c.name)+'</h3>'+compoundVerificationPill(c.verification_status)+'</div>'+
+      '<div class="compound-meta"><span class="pill pill-static">Tier '+escapeGraphHtml(c.tier)+'</span><span class="pill pill-select">'+escapeGraphHtml(compoundRoleLabel(c.role))+'</span></div>'+
+      '<p>'+escapeGraphHtml(c.target_site)+'</p></button>';
+  }).join('');
+  Array.prototype.forEach.call(grid.querySelectorAll('[data-compound]'), function(card){
+    card.addEventListener('click', function(){
+      selectedCompoundSlug = card.getAttribute('data-compound');
+      renderCompoundGrid();
     });
   });
+  renderCompoundDetail(compoundsCache.find(function(c){return c.slug===selectedCompoundSlug;}));
 }
+
+async function loadCompounds(){
+  var summary = await api('/api/compounds/summary');
+  var kpis = [
+    {n:summary.total,l:'Landscape records'},
+    {n:summary.verified,l:'Identity + mechanism verified'},
+    {n:summary.partial,l:'Partially verified'},
+    {n:summary.unverified,l:'Quarantined / unverified'},
+    {n:summary.direct_inhibitors,l:'Direct-inhibitor records'},
+    {n:summary.fto_cleared,l:'FTO clearances completed'},
+  ];
+  document.getElementById('compoundKpis').innerHTML = kpis.map(function(k){return '<div class="kpi"><div class="n">'+k.n+'</div><div class="l">'+k.l+'</div></div>';}).join('');
+  var params = new URLSearchParams();
+  var q = document.getElementById('compoundSearch').value.trim();
+  var tier = document.getElementById('compoundTier').value;
+  var role = document.getElementById('compoundRole').value;
+  var verification = document.getElementById('compoundVerification').value;
+  if(q) params.set('q',q); if(tier) params.set('tier',tier); if(role) params.set('role',role); if(verification) params.set('verification',verification);
+  compoundsCache = await api('/api/compounds'+(params.toString()?'?'+params.toString():''));
+  renderCompoundGrid();
+}
+
+['compoundTier','compoundRole','compoundVerification'].forEach(function(id){
+  document.getElementById(id).addEventListener('change', loadCompounds);
+});
+document.getElementById('compoundSearch').addEventListener('input', function(){
+  clearTimeout(compoundSearchTimer);
+  compoundSearchTimer = setTimeout(loadCompounds, 220);
+});
 
 function renderAgentFilters(){
   const box = document.getElementById('agentFilters');
@@ -267,6 +438,49 @@ async function loadSources(){
 
 let cyInstance = null;
 
+const graphTypeColor = {gene:'#1769aa', disease:'#c33d4a', pathway:'#16866a', drug:'#b56a10', variant:'#6f63a8'};
+
+function escapeGraphHtml(value){
+  return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch];
+  });
+}
+
+function renderGraphDetails(node){
+  const panel = document.getElementById('graphDetails');
+  if(!node){
+    panel.innerHTML = '<div class="graph-details-kicker">Selected node</div><h3>Explore the pathway</h3><p>Select a node to see its type, reference, scientific context, and direct relationships.</p>';
+    return;
+  }
+  const data = node.data();
+  const props = data.properties || {};
+  const relations = node.connectedEdges().map(function(edge){
+    const other = edge.source().id() === node.id() ? edge.target() : edge.source();
+    return '<li><b>'+escapeGraphHtml(edge.data('label').replace(/_/g, ' '))+'</b> &rarr; '+escapeGraphHtml(other.data('label'))+'</li>';
+  }).join('');
+  const context = props.description || props.protein_name || props.organ || props.inheritance || props.omim || '';
+  panel.innerHTML =
+    '<div class="graph-details-kicker">Selected node</div>'+
+    '<span class="graph-detail-type" style="background:'+ (graphTypeColor[data.type] || '#5c5b57') +'">'+escapeGraphHtml(data.type)+'</span>'+
+    '<h3>'+escapeGraphHtml(data.label)+'</h3>'+
+    (context ? '<p>'+escapeGraphHtml(context)+'</p>' : '')+
+    (data.externalRef ? '<div class="graph-detail-row"><span>External reference</span><strong>'+escapeGraphHtml(data.externalRef)+'</strong></div>' : '')+
+    (props.inheritance ? '<div class="graph-detail-row"><span>Inheritance</span><strong>'+escapeGraphHtml(props.inheritance)+'</strong></div>' : '')+
+    (props.organ ? '<div class="graph-detail-row"><span>Clinical system</span><strong>'+escapeGraphHtml(props.organ)+'</strong></div>' : '')+
+    '<div class="graph-detail-row"><span>Direct relationships ('+node.degree()+')</span>'+(relations ? '<ul class="graph-relations">'+relations+'</ul>' : '<strong>None recorded</strong>')+'</div>';
+}
+
+function setGraphFocus(node){
+  if(!cyInstance) return;
+  cyInstance.elements().removeClass('focused faded selected');
+  if(!node){ renderGraphDetails(null); return; }
+  const neighborhood = node.closedNeighborhood();
+  cyInstance.elements().not(neighborhood).addClass('faded');
+  neighborhood.addClass('focused');
+  node.addClass('selected');
+  renderGraphDetails(node);
+}
+
 async function loadGraphForSelected(){
   const c = candidatesCache.find(function(x){return x.slug===selectedSlug;});
   const symbol = c ? c.genes.split(/[,+]/)[0].trim() : '';
@@ -277,11 +491,11 @@ async function loadGraphForSelected(){
   }catch(e){
     document.getElementById('graphViz').innerHTML = '<div class="small" style="padding:12px;">No graph node seeded for '+symbol+' yet.</div>';
     document.getElementById('graphLegend').textContent = '';
+    renderGraphDetails(null);
     return;
   }
-  const typeColor = {gene:'#185fa5', disease:'#a32d2d', pathway:'#0f6e56', drug:'#854f0b', variant:'#5c5b57'};
   const elements = sub.nodes.map(function(n){
-    return {data:{id:'n'+n.id, label:n.label, type:n.node_type}};
+    return {data:{id:'n'+n.id, label:n.label, type:n.node_type, externalRef:n.external_ref, properties:n.properties || {}, focal:n.label===symbol}};
   }).concat(sub.edges.map(function(e){
     return {data:{id:'e'+e.id, source:'n'+e.source_id, target:'n'+e.target_id, label:e.edge_type}};
   }));
@@ -291,24 +505,56 @@ async function loadGraphForSelected(){
     elements: elements,
     style: [
       {selector:'node', style:{
-        'background-color': function(ele){ return typeColor[ele.data('type')] || '#5c5b57'; },
-        'label':'data(label)', 'color': getComputedStyle(document.documentElement).getPropertyValue('--text'),
-        'font-size':10, 'text-valign':'bottom', 'text-margin-y':4, 'width':26, 'height':26,
+        'background-color': function(ele){ return graphTypeColor[ele.data('type')] || '#5c5b57'; },
+        'border-width':3, 'border-color':'#ffffff', 'border-opacity':1,
+        'label':'data(label)', 'color':'#1c1c1a', 'font-size':12, 'font-weight':600,
+        'text-wrap':'wrap', 'text-max-width':125, 'text-valign':'bottom', 'text-halign':'center',
+        'text-margin-y':8, 'text-background-color':'#ffffff', 'text-background-opacity':0.92,
+        'text-background-padding':3, 'text-background-shape':'roundrectangle',
+        'width':34, 'height':34, 'overlay-padding':6, 'overlay-opacity':0,
       }},
+      {selector:'node[type = "pathway"]', style:{'shape':'round-rectangle', 'width':44, 'height':36}},
+      {selector:'node[type = "disease"]', style:{'shape':'diamond', 'width':40, 'height':40}},
+      {selector:'node[type = "drug"]', style:{'shape':'hexagon', 'width':40, 'height':40}},
+      {selector:'node[focal]', style:{'width':54, 'height':54, 'border-width':5, 'border-color':'#d6ecff', 'font-size':14, 'z-index':10}},
       {selector:'edge', style:{
-        'width':1.5, 'line-color': getComputedStyle(document.documentElement).getPropertyValue('--border-strong'),
-        'target-arrow-color': getComputedStyle(document.documentElement).getPropertyValue('--border-strong'),
-        'target-arrow-shape':'triangle', 'curve-style':'bezier',
-        'label':'data(label)', 'font-size':8, 'color': getComputedStyle(document.documentElement).getPropertyValue('--text-muted'),
+        'width':2, 'line-color':'#a7afb8', 'target-arrow-color':'#7d8792',
+        'target-arrow-shape':'triangle', 'arrow-scale':0.9, 'curve-style':'bezier',
+        'label':'data(label)', 'font-size':9.5, 'font-weight':500, 'color':'#4f5964',
+        'text-rotation':'autorotate', 'text-background-color':'#ffffff', 'text-background-opacity':0.88,
+        'text-background-padding':2, 'text-margin-y':-7,
       }},
+      {selector:'.faded', style:{'opacity':0.13, 'text-opacity':0.08}},
+      {selector:'node.selected', style:{'border-color':'#f2b84b', 'border-width':5, 'overlay-color':'#f2b84b', 'overlay-opacity':0.12}},
+      {selector:'edge.focused', style:{'width':3, 'line-color':'#4d8fc7', 'target-arrow-color':'#4d8fc7', 'z-index':8}},
     ],
-    layout: {name:'cose', animate:false, padding:20},
+    layout: {
+      name:'concentric', animate:false, padding:72, minNodeSpacing:72, avoidOverlap:true,
+      concentric:function(node){ return node.data('focal') ? 100 : (node.data('type') === 'pathway' ? 70 : 30); },
+      levelWidth:function(){ return 25; }, startAngle:Math.PI * 1.5, sweep:Math.PI * 2,
+    },
+    minZoom:0.45, maxZoom:2.2,
   });
+  cyInstance.on('tap', 'node', function(evt){ setGraphFocus(evt.target); });
+  cyInstance.on('tap', function(evt){ if(evt.target === cyInstance) setGraphFocus(null); });
+  cyInstance.on('mouseover', 'node', function(){ document.getElementById('graphViz').style.cursor = 'pointer'; });
+  cyInstance.on('mouseout', 'node', function(){ document.getElementById('graphViz').style.cursor = 'grab'; });
+  const focalNode = cyInstance.nodes().filter(function(n){ return n.data('focal'); }).first();
+  if(focalNode && focalNode.length){ setGraphFocus(focalNode); }
+  cyInstance.fit(undefined, 52);
   const types = Array.from(new Set(sub.nodes.map(function(n){return n.node_type;})));
   document.getElementById('graphLegend').innerHTML = types.map(function(t){
-    return '<span style="display:inline-flex; align-items:center; gap:4px; margin-right:12px;"><span style="width:9px; height:9px; border-radius:50%; display:inline-block; background:'+(typeColor[t]||'#5c5b57')+';"></span>'+t+'</span>';
-  }).join('') + '<span>'+sub.nodes.length+' nodes, '+sub.edges.length+' edges</span>';
+    return '<span class="graph-legend-item"><span class="graph-legend-dot" style="background:'+(graphTypeColor[t]||'#5c5b57')+';"></span>'+escapeGraphHtml(t)+'</span>';
+  }).join('') + '<span class="graph-count">'+sub.nodes.length+' nodes &middot; '+sub.edges.length+' relationships</span>';
 }
+
+document.getElementById('graphZoomIn').addEventListener('click', function(){
+  if(cyInstance) cyInstance.zoom({level:Math.min(cyInstance.zoom()*1.25, cyInstance.maxZoom()), renderedPosition:{x:cyInstance.width()/2,y:cyInstance.height()/2}});
+});
+document.getElementById('graphZoomOut').addEventListener('click', function(){
+  if(cyInstance) cyInstance.zoom({level:Math.max(cyInstance.zoom()/1.25, cyInstance.minZoom()), renderedPosition:{x:cyInstance.width()/2,y:cyInstance.height()/2}});
+});
+document.getElementById('graphFit').addEventListener('click', function(){ if(cyInstance) cyInstance.animate({fit:{eles:cyInstance.elements(),padding:52},duration:280}); });
 
 function confidencePill(c){
   const pct = Math.round(c*100);
@@ -391,11 +637,114 @@ async function loadPortfolioHealth(){
   }).join('');
 }
 
+async function loadOperations(){
+  const ops = await api('/api/ops/summary');
+  const kpis = [
+    {n: ops.vendor_count, l: 'Verified CRO/vendor records'},
+    {n: ops.study_count, l: 'Operational studies'},
+    {n: ops.active_study_count, l: 'Active studies'},
+    {n: ops.demo_study_count, l: 'Clearly labelled demo studies'},
+  ];
+  document.getElementById('opsKpiRow').innerHTML = kpis.map(function(k){
+    return '<div class="kpi"><div class="n">'+k.n+'</div><div class="l">'+k.l+'</div></div>';
+  }).join('');
+
+  const studyRows = ops.studies.map(function(s){
+    return '<tr><td>'+s.title+(s.is_demo?' <span class="pill pill-warn">DEMO</span>':'')+
+      '<div class="small">'+s.study_type+'</div></td><td>'+s.candidate_slug+'</td><td>'+s.status+'</td><td>'+s.owner+'</td></tr>';
+  }).join('');
+  document.getElementById('studiesCard').innerHTML =
+    '<div class="card-head"><div><h3>CRO study registry</h3><div class="card-sub">Live from GET /api/ops/summary</div></div></div>'+
+    (studyRows ? '<table><thead><tr><th>Study</th><th>Candidate</th><th>Status</th><th>Owner</th></tr></thead><tbody>'+studyRows+'</tbody></table>' : '<div class="small">No studies imported yet.</div>');
+
+  const readinessRows = Object.keys(ops.readiness).map(function(slug){
+    const counts = ops.readiness[slug];
+    return '<tr><td><b>'+slug+'</b></td><td>'+(counts.present||0)+'</td><td>'+(counts.provisional||0)+'</td><td>'+(counts.missing||0)+'</td><td>'+(counts.failed||0)+'</td></tr>';
+  }).join('');
+  document.getElementById('readinessCard').innerHTML =
+    '<div class="card-head"><div><h3>CMC / nonclinical / regulatory readiness</h3><div class="card-sub">Evidence status is explicit; missing evidence is never represented as progress.</div></div></div>'+
+    (readinessRows ? '<table><thead><tr><th>Candidate</th><th>Present</th><th>Provisional</th><th>Missing</th><th>Failed</th></tr></thead><tbody>'+readinessRows+'</tbody></table>' : '<div class="small">No readiness evidence imported yet.</div>');
+}
+
+function pocStateLabel(state){
+  if(state === 'live_evidence') return '<span class="poc-state live"><span class="status-dot dot-green"></span>Live evidence feed</span>';
+  if(state === 'connected_waiting') return '<span class="poc-state waiting"><span class="status-dot dot-amber"></span>Connected · awaiting successful run</span>';
+  return '<span class="poc-state ready">Interface ready</span>';
+}
+
+function renderPocWorkbench(){
+  if(!pocCache) return;
+  var data = pocCache;
+  var detailed = pocView === 'scientist';
+  document.getElementById('pocPlainView').classList.toggle('active', !detailed);
+  document.getElementById('pocScientistView').classList.toggle('active', detailed);
+  document.getElementById('pocTitle').textContent = data.program.title;
+  document.getElementById('pocMission').textContent = detailed ? data.program.mission : data.program.plain_language;
+
+  document.getElementById('pocTruthStrip').innerHTML =
+    '<div><span>Program variant</span><strong>'+escapeGraphHtml(data.program.transcript)+' · '+escapeGraphHtml(data.program.program_variant)+'</strong></div>'+
+    '<div><span>Evidence boundary</span><strong>'+escapeGraphHtml(detailed ? data.evidence_boundary.variant_status : 'The exact variant still needs mechanism confirmation')+'</strong></div>'+
+    '<div><span>Model rule</span><strong>'+escapeGraphHtml(detailed ? data.evidence_boundary.model_anchor : 'A512P informs the pathway; it does not prove Leu756Arg biology')+'</strong></div>';
+
+  var kpis = [
+    {n:data.counts.biology_steps, l:'linked biology steps'},
+    {n:data.counts.experimental_groups, l:'experimental groups'},
+    {n:data.counts.go_no_go_gates, l:'go / no-go gates'},
+    {n:data.counts.validated_gates+' / '+data.counts.go_no_go_gates, l:'experimentally validated gates'},
+    {n:data.counts.live_copilots+' / '+data.counts.copilot_interfaces, l:'copilots with successful live evidence'},
+  ];
+  document.getElementById('pocKpis').innerHTML = kpis.map(function(k){return '<div class="kpi"><div class="n">'+k.n+'</div><div class="l">'+k.l+'</div></div>';}).join('');
+
+  document.getElementById('pocChain').innerHTML = data.biology_chain.map(function(step){
+    var assay = detailed ? '<div class="poc-assays">'+step.assays.map(function(a){return '<span>'+escapeGraphHtml(a)+'</span>';}).join('')+'</div>' : '';
+    return '<article class="poc-chain-step"><div class="poc-chain-number">'+step.step+'</div><div><small>'+escapeGraphHtml(step.label)+'</small><p>'+escapeGraphHtml(detailed ? step.scientist : step.plain)+'</p>'+assay+'</div></article>';
+  }).join('');
+
+  document.getElementById('pocGroups').innerHTML = data.experimental_groups.map(function(group, index){
+    return '<div class="poc-list-row"><span>'+(index+1)+'</span><div><strong>'+escapeGraphHtml(group.name)+'</strong><small>'+escapeGraphHtml(group.purpose)+'</small></div></div>';
+  }).join('');
+
+  document.getElementById('pocTiers').innerHTML = data.development_tiers.map(function(tier){
+    return '<div class="poc-tier"><b>Tier '+tier.tier+'</b><div><strong>'+escapeGraphHtml(tier.name)+'</strong><small>'+escapeGraphHtml(tier.models)+'</small><p>'+escapeGraphHtml(tier.decision)+'</p></div></div>';
+  }).join('');
+
+  document.getElementById('pocGates').innerHTML = data.go_no_go_gates.map(function(gate, index){
+    return '<article class="poc-gate"><div class="poc-gate-top"><span>Gate '+(index+1)+'</span><b>Planned</b></div><h4>'+escapeGraphHtml(gate.name)+'</h4><p>'+escapeGraphHtml(gate.question)+'</p></article>';
+  }).join('');
+
+  document.getElementById('pocCopilots').innerHTML = data.execution_copilots.map(function(copilot){
+    var sourceNames = copilot.sources.length ? copilot.sources.map(function(source){
+      var resultClass = source.latest_status === 'success' ? 'ok' : (source.latest_status === 'error' ? 'bad' : 'idle');
+      return '<span class="poc-agent-source '+resultClass+'">'+escapeGraphHtml(source.name)+'</span>';
+    }).join('') : '<span class="poc-agent-source idle">ELN / LIMS connector not yet configured</span>';
+    return '<article class="poc-copilot"><div class="poc-copilot-head"><span class="poc-emoji">'+copilot.emoji+'</span><div><h4>'+escapeGraphHtml(copilot.name)+'</h4>'+pocStateLabel(copilot.state)+'</div></div><p>'+escapeGraphHtml(detailed ? copilot.scientist : copilot.plain)+'</p><div class="poc-deliverable"><span>Delivers</span>'+escapeGraphHtml(copilot.deliverable)+'</div><div class="poc-agent-sources">'+sourceNames+'</div></article>';
+  }).join('');
+
+  document.getElementById('pocRigor').innerHTML = data.rigor_locks.map(function(rule){return '<li>'+escapeGraphHtml(rule)+'</li>';}).join('');
+  document.getElementById('pocFunding').innerHTML =
+    '<div class="poc-funding-truth"><span>'+escapeGraphHtml(data.funding_truth.headline)+'</span><strong>'+escapeGraphHtml(data.funding_truth.current_state)+'</strong><p>'+escapeGraphHtml(data.funding_truth.investment_case)+'</p></div>'+
+    data.funding_milestones.map(function(milestone){
+      return '<div class="poc-milestone"><span class="poc-milestone-status '+escapeGraphHtml(milestone.status)+'">'+escapeGraphHtml(milestone.status.replace(/_/g,' '))+'</span><div><strong>'+escapeGraphHtml(milestone.name)+'</strong><small>'+escapeGraphHtml(milestone.unlocks)+'</small></div></div>';
+    }).join('');
+
+  document.getElementById('pocSources').innerHTML = '<div class="poc-source-grid">'+data.verification_sources.map(function(source){
+    return '<a class="poc-source" href="'+escapeGraphHtml(source.url)+'" target="_blank" rel="noreferrer"><strong>'+escapeGraphHtml(source.name)+' ↗</strong><span>'+escapeGraphHtml(source.supports)+'</span></a>';
+  }).join('')+'</div>';
+}
+
+async function loadPocWorkbench(){
+  pocCache = await api('/api/poc');
+  renderPocWorkbench();
+}
+
+document.getElementById('pocPlainView').addEventListener('click', function(){pocView='plain';renderPocWorkbench();});
+document.getElementById('pocScientistView').addEventListener('click', function(){pocView='scientist';renderPocWorkbench();});
+
 function renderFooter(){
   document.getElementById('footerBox').innerHTML =
     '<p>This dashboard is served by the CADDTARD API itself (FastAPI + StaticFiles) &mdash; there is no local HTML file to open. '+
     'All data comes from same-origin <code>/api/*</code> endpoints backed by a persistent database (SQLite locally, Postgres in Docker Compose). '+
-    'v2.0 adds the full six-layer architecture: a Layer 1 data-source registry, a Layer 2 relational knowledge graph (Postgres-backed today, Neo4j-swappable per ARCHITECTURE.md), '+
+    'v3.4 MVP implements the full seven-layer architecture plus a biology-verified proof-of-concept mission control: a Layer 1 data-source registry, a Layer 2 relational knowledge graph (Postgres-backed today, Neo4j-swappable per ARCHITECTURE.md), '+
     'a Layer 3 agent taxonomy spanning Genomics/Disease Biology/Therapeutics/AI Science/Development, a Layer 4 evidence-graded reasoning engine, a Layer 5 lab operating system, '+
     'and this Layer 6 executive view. "Live agent" pills call real public sources now; "Reference" pills are reserved, honestly-labeled slots not yet wired up &mdash; see ARCHITECTURE.md for the full implemented-vs-planned map.</p>'+
     '<p>Full interactive API reference: <a href="/docs" target="_blank">/docs</a> (Swagger) or <a href="/redoc" target="_blank">/redoc</a>.</p>'+
@@ -404,8 +753,8 @@ function renderFooter(){
 
 async function boot(){
   try{
-    const health = await api('/api/health');
-    document.getElementById('apiStatus').textContent = 'Connected to ' + health.app + ' v' + health.version;
+    const health = await api('/health');
+    document.getElementById('apiStatus').innerHTML = '<span class="status-dot dot-green"></span> Connected to ' + health.app + ' v' + health.version + ' · live data';
   }catch(e){
     document.getElementById('apiStatus').textContent = 'API unreachable';
     showConnectionError(e);
@@ -413,13 +762,27 @@ async function boot(){
   }
   await Promise.all([
     loadKPIs(), loadScoring(), loadCandidateTabs(), loadAgents(),
-    loadSources(), loadPortfolioHealth(), loadLabRecommendations(),
+    loadSources(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(), loadCompounds(), loadPocWorkbench(),
   ]);
   renderFooter();
 }
 
-document.getElementById('refreshAll').addEventListener('click', function(){
-  loadAgents(); loadPortfolioHealth(); loadLabRecommendations();
+document.getElementById('refreshAll').addEventListener('click', async function(){
+  var btn = this;
+  var oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Refreshing…';
+  try{
+    await Promise.all([loadKPIs(), loadScoring(), loadAgents(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(), loadDiseaseBiologyWorkbench(), loadCompounds(), loadPocWorkbench()]);
+    btn.textContent = 'Data refreshed ✓';
+    setTimeout(function(){ btn.textContent = oldText; }, 1500);
+  }catch(e){
+    showConnectionError(e);
+    btn.textContent = 'Refresh failed';
+    setTimeout(function(){ btn.textContent = oldText; }, 1800);
+  }finally{
+    btn.disabled = false;
+  }
 });
 
 boot();

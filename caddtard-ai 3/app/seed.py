@@ -7,13 +7,14 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from app import seed_data, seed_data_v2, seed_data_v3
+from app import seed_data, seed_data_v2, seed_data_v3, seed_data_v4
 from app.database import Base, SessionLocal, engine
 from app.graph.store import PostgresGraphStore
 from app.models import (
     AgentDefinition,
     Candidate,
     ChecklistItem,
+    Compound,
     CostItem,
     CostSummary,
     DataSource,
@@ -44,6 +45,7 @@ def run_seed() -> None:
         _seed(db)
         _seed_v2(db)  # independent idempotency check - runs even if v1 tables were already seeded by an older deploy
         _seed_v3(db)  # operational layer: readiness ledger + one clearly-labeled demo study
+        _seed_v4(db)  # evidence-graded V-ATPase compound landscape
     finally:
         db.close()
 
@@ -143,17 +145,19 @@ def _seed_v2(db: Session) -> None:
     hyp_count = 0
     step_count = 0
     for h in seed_data_v2.HYPOTHESES:
-        steps = h.pop("steps")
-        hypothesis = Hypothesis(**h)
+        hypothesis_data = dict(h)
+        steps = hypothesis_data.pop("steps")
+        hypothesis = Hypothesis(**hypothesis_data)
         db.add(hypothesis)
         db.flush()
         for i, step in enumerate(steps):
-            papers = step.pop("supporting_papers")
+            step_data = dict(step)
+            papers = step_data.pop("supporting_papers")
             db.add(HypothesisStep(
                 hypothesis_id=hypothesis.id,
                 sort_order=i,
                 supporting_papers_json=json.dumps(papers),
-                **step,
+                **step_data,
             ))
             step_count += 1
         hyp_count += 1
@@ -180,10 +184,9 @@ def _seed_v3(db: Session) -> None:
 
     for r in seed_data_v3.READINESS_REQUIREMENTS:
         db.add(ReadinessRequirement(**r))
-    db.commit()
+    db.flush()
 
     vendors = import_cro_vendors(db, seed_data_v3.DEMO_VENDOR_CSV, "DEMO_SEED")
-    db.commit()
     name_map = {v.name: v.id for v in vendors}
     import_vendor_quotes(db, seed_data_v3.DEMO_QUOTE_CSV, "DEMO_SEED", name_map)
 
@@ -197,7 +200,7 @@ def _seed_v3(db: Session) -> None:
         is_demo=True,
     )
     db.add(study)
-    db.commit()
+    db.flush()
     db.refresh(study)
 
     import_samples(db, seed_data_v3.DEMO_SAMPLE_CSV, "DEMO_SEED", study.id)
@@ -209,6 +212,58 @@ def _seed_v3(db: Session) -> None:
         "v3 seed complete: %d readiness requirements, 1 demo vendor, 1 demo study (id=%d, is_demo=True).",
         len(seed_data_v3.READINESS_REQUIREMENTS), study.id,
     )
+
+
+def _seed_v4(db: Session) -> None:
+    """Seed the uploaded compound landscape with independent evidence flags.
+
+    The knowledge-graph edges describe each record's role; they do not imply
+    efficacy, safety, clinical readiness or freedom to operate.
+    """
+    if db.query(Compound).count() > 0:
+        logger.info("v4 compound landscape already seeded, skipping.")
+        return
+
+    logger.info("Seeding v4 evidence-graded compound landscape...")
+    graph = PostgresGraphStore(db)
+    pathway = next((n for n in graph.nodes("pathway") if n.label == "V-ATPase proton-transport pathway"), None)
+
+    edge_by_role = {
+        "direct_inhibitor": "inhibits",
+        "pathway_adjacent": "modulates_pathway",
+        "comparator": "assay_comparator_for",
+        "benchmark": "benchmarks",
+        "thin_data": "provisional_mention_for",
+    }
+    for item in seed_data_v4.COMPOUNDS:
+        data = dict(item)
+        evidence = data.pop("evidence")
+        compound = Compound(evidence_json=json.dumps(evidence), **data)
+        db.add(compound)
+
+        node = graph.upsert_node(
+            "drug",
+            data["name"],
+            f"CADDTARD:compound:{data['slug']}",
+            {
+                "tier": data["tier"],
+                "role": data["role"],
+                "verification_status": data["verification_status"],
+                "identity_verified": data["identity_verified"],
+                "mechanism_verified": data["mechanism_verified"],
+                "description": data["platform_fit"],
+            },
+        )
+        if pathway is not None:
+            graph.upsert_edge(
+                node.id,
+                pathway.id,
+                edge_by_role[data["role"]],
+                {"verification_status": data["verification_status"], "caveat": data["caveat"]},
+            )
+
+    db.commit()
+    logger.info("v4 seed complete: %d compound records.", len(seed_data_v4.COMPOUNDS))
 
 
 if __name__ == "__main__":

@@ -36,7 +36,14 @@ def start_scheduler() -> BackgroundScheduler | None:
     finally:
         db.close()
 
-    scheduler = BackgroundScheduler(timezone="UTC")
+    scheduler = BackgroundScheduler(
+        timezone="UTC",
+        job_defaults={
+            "coalesce": True,
+            "max_instances": 1,
+            "misfire_grace_time": settings.agent_misfire_grace_seconds,
+        },
+    )
     now = dt.datetime.now(dt.timezone.utc)
     staggered = 0
     for definition in implemented:
@@ -51,10 +58,10 @@ def start_scheduler() -> BackgroundScheduler | None:
             minutes=interval,
             id=f"agent-{definition.key}",
             kwargs={"run_id": None, "trigger": "scheduled"},
-            next_run_time=now + dt.timedelta(seconds=5 + staggered * 10),
+            next_run_time=now + dt.timedelta(
+                seconds=settings.agent_initial_delay_seconds + staggered * settings.agent_stagger_seconds
+            ),
             replace_existing=True,
-            max_instances=1,
-            coalesce=True,
         )
         staggered += 1
 
@@ -73,3 +80,9 @@ def stop_scheduler() -> None:
 
 def scheduler_is_running() -> bool:
     return _scheduler is not None and _scheduler.running
+
+
+def scheduler_job_count() -> int:
+    if not scheduler_is_running():
+        return 0
+    return len(_scheduler.get_jobs())
