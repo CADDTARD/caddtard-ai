@@ -1,5 +1,5 @@
 """
-CADDTARD AI v3.3 MVP - FastAPI application entrypoint.
+CADDTARD AI v3.4 MVP - FastAPI application entrypoint.
 
 Run directly:      uvicorn app.main:app --reload
 Run via Docker:     see Dockerfile / docker-compose.yml
@@ -30,6 +30,7 @@ from app.routers import (
     hypotheses,
     lab,
     ops,
+    poc,
     scoring,
     sources,
     variants,
@@ -114,6 +115,7 @@ app.include_router(hypotheses.router)
 app.include_router(lab.router)
 app.include_router(dashboard.router)
 app.include_router(ops.router)
+app.include_router(poc.router)
 
 # Mounted last so it acts as a catch-all for the browser dashboard without
 # shadowing any /api/* or /health route registered above.

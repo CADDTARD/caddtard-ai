@@ -14,13 +14,13 @@
 <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
 <header class="topbar">
   <a class="brand" href="#overview" aria-label="CADDTARD AI home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span><strong>CADDTARD</strong><b>AI</b></span></a>
-  <nav class="topnav" aria-label="Dashboard sections"><a href="#portfolio">Portfolio</a><a href="#science">Science</a><a href="#biology">Disease biology</a><a href="#compounds">Compounds</a><a href="#agents">Agents</a><a href="#execution">Execution</a></nav>
+  <nav class="topnav" aria-label="Dashboard sections"><a href="#portfolio">Portfolio</a><a href="#science">Science</a><a href="#biology">Disease biology</a><a href="#compounds">Compounds</a><a href="#poc">Proof of concept</a><a href="#agents">Agents</a><a href="#execution">Execution</a></nav>
   <div class="header-actions"><a class="btn ghost" href="/docs" target="_blank" rel="noreferrer">API docs ↗</a><button id="toggleTheme" class="icon-btn" type="button" aria-label="Toggle color theme">◐</button></div>
 </header>
 <main class="wrap" id="overview">
   <section class="hero">
     <div class="hero-copy">
-      <div class="eyebrow"><span class="pulse"></span> Translational intelligence platform <span>v3.3 MVP</span></div>
+      <div class="eyebrow"><span class="pulse"></span> Translational intelligence platform <span>v3.4 MVP</span></div>
       <h1>Turn rare-disease evidence into <em>decisions.</em></h1>
       <p>One living command center for target biology, candidate prioritization, experimental planning, IND readiness and portfolio execution — built around the V-ATPase program.</p>
       <div class="hero-actions"><a class="btn primary" href="#portfolio">Explore the portfolio <span>→</span></a><button id="refreshAll" class="btn secondary" type="button">Refresh live data</button></div>
@@ -83,14 +83,44 @@
     <div class="compound-layout"><div class="compound-grid" id="compoundGrid"><div class="skeleton">Loading compounds…</div></div><aside class="card compound-detail" id="compoundDetail"><div class="small">Select a compound to inspect its evidence ledger and limitations.</div></aside></div>
   </section>
 
+  <section id="poc" class="dashboard-section poc-section">
+    <div class="section-title"><div><span class="section-number">05</span><h2>Proof-of-concept mission control</h2></div><p>From a biological hypothesis to funder-grade decision evidence</p></div>
+    <div class="poc-hero">
+      <div><span class="feature-label">ATP6V0A1 EXECUTION RUNWAY</span><h3 id="pocTitle">Loading POC program…</h3><p id="pocMission"></p></div>
+      <div class="poc-view-toggle" role="group" aria-label="Choose explanation detail"><button id="pocPlainView" class="active" type="button">Plain English</button><button id="pocScientistView" type="button">Scientist detail</button></div>
+    </div>
+    <div class="poc-truth-strip" id="pocTruthStrip"><div class="skeleton">Checking evidence boundaries…</div></div>
+    <div class="kpi-row compact-kpis" id="pocKpis"><div class="skeleton">Loading POC decision state…</div></div>
+
+    <div class="subsection-heading"><div><span class="mini-icon violet">∞</span><h3>The rescue chain</h3></div><span class="small">Eight linked biological questions, one evidence story</span></div>
+    <div class="poc-chain" id="pocChain"><div class="skeleton">Building the biological chain…</div></div>
+
+    <div class="poc-two-column">
+      <div class="card poc-panel"><div class="card-head"><div><h3>Seven experimental groups</h3><div class="card-sub">Controls that make the rescue claim interpretable</div></div><span class="pill pill-select">Design locked</span></div><div id="pocGroups"></div></div>
+      <div class="card poc-panel"><div class="card-head"><div><h3>Four development tiers</h3><div class="card-sub">Spend more only after the prior tier earns it</div></div></div><div id="pocTiers"></div></div>
+    </div>
+
+    <div class="subsection-heading"><div><span class="mini-icon lime">✓</span><h3>Go or no-go gates</h3></div><span class="small">No gate is marked validated until qualified data are ingested</span></div>
+    <div class="poc-gates" id="pocGates"><div class="skeleton">Loading evidence gates…</div></div>
+
+    <div class="subsection-heading"><div><span class="mini-icon coral">✦</span><h3>Execution copilots</h3></div><span class="small">Interfaces layered onto the existing 20-agent scheduler</span></div>
+    <div class="poc-copilot-grid" id="pocCopilots"><div class="skeleton">Connecting execution copilots…</div></div>
+
+    <div class="poc-two-column">
+      <div class="card poc-panel"><div class="card-head"><div><h3>Rigor locks</h3><div class="card-sub">Rules that keep an attractive result from becoming a weak conclusion</div></div></div><ol class="poc-rigor-list" id="pocRigor"></ol></div>
+      <div class="card poc-panel"><div class="card-head"><div><h3>Funder evidence room</h3><div class="card-sub">What is complete, what is missing and what each milestone unlocks</div></div></div><div id="pocFunding"></div></div>
+    </div>
+    <div class="card card-wide poc-sources-card"><div class="card-head"><div><h3>Verification ledger</h3><div class="card-sub">Primary literature and official methods or policy sources behind the decision framework</div></div><span class="pill pill-static">Read only</span></div><div id="pocSources"></div></div>
+  </section>
+
   <section id="agents" class="dashboard-section">
-    <div class="section-title"><div><span class="section-number">05</span><h2>Agent constellation</h2></div><p>Specialized agents turning public scientific data into program intelligence</p></div>
+    <div class="section-title"><div><span class="section-number">06</span><h2>Agent constellation</h2></div><p>Specialized agents turning public scientific data into program intelligence</p></div>
     <div class="filter-panel"><div class="row" id="agentFilters"></div><span class="count" id="agentCount"></span></div><div class="agent-grid" id="agentGrid"></div>
     <div class="subsection-heading"><div><span class="mini-icon lime">⌘</span><h3>Connected data fabric</h3></div><span class="small">Source registry behind the agent network</span></div><div class="card card-wide" id="sourcesCard"></div>
   </section>
 
   <section id="execution" class="dashboard-section">
-    <div class="section-title"><div><span class="section-number">06</span><h2>Execution runway</h2></div><p>Move the selected program from plan to experiment to IND readiness</p></div>
+    <div class="section-title"><div><span class="section-number">07</span><h2>Execution runway</h2></div><p>Move the selected program from plan to experiment to IND readiness</p></div>
     <div class="execution-grid"><div class="card execution-card"><div class="feature-label">12-MONTH ROADMAP</div><div class="card-body" id="timelineIntro"></div><div id="timelineBox"></div></div><div class="card execution-card"><div class="feature-label">NON-CLINICAL INVESTMENT</div><div id="costBreakdown"></div></div></div>
     <div class="subsection-heading"><div><span class="mini-icon amber">✓</span><h3>IND readiness</h3></div><span class="small">Shared, server-persisted checklist</span></div><div class="card" id="checklistCard"></div>
     <div class="subsection-heading"><div><span class="mini-icon pink">⚗</span><h3>Laboratory operating system</h3></div><span class="small">Recommended next experiments from open evidence gaps</span></div><div class="card card-wide" id="labRecommendationsCard"></div><div class="card card-wide spaced-card" id="experimentsCard"></div>

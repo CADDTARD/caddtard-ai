@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "CADDTARD AI"
-    app_version: str = "3.3.0"
+    app_version: str = "3.4.0"
 
     # Falls back to a local SQLite file when no DATABASE_URL is supplied,
     # so `uvicorn app.main:app` works with zero extra setup outside Docker.

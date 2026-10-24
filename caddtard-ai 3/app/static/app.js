@@ -4,6 +4,8 @@ let candidatesCache = [];
 let compoundsCache = [];
 let selectedCompoundSlug = null;
 let compoundSearchTimer = null;
+let pocCache = null;
+let pocView = 'plain';
 
 var savedTheme = localStorage.getItem('caddtard-theme');
 if(savedTheme){ document.documentElement.setAttribute('data-theme', savedTheme); }
@@ -664,11 +666,85 @@ async function loadOperations(){
     (readinessRows ? '<table><thead><tr><th>Candidate</th><th>Present</th><th>Provisional</th><th>Missing</th><th>Failed</th></tr></thead><tbody>'+readinessRows+'</tbody></table>' : '<div class="small">No readiness evidence imported yet.</div>');
 }
 
+function pocStateLabel(state){
+  if(state === 'live_evidence') return '<span class="poc-state live"><span class="status-dot dot-green"></span>Live evidence feed</span>';
+  if(state === 'connected_waiting') return '<span class="poc-state waiting"><span class="status-dot dot-amber"></span>Connected · awaiting successful run</span>';
+  return '<span class="poc-state ready">Interface ready</span>';
+}
+
+function renderPocWorkbench(){
+  if(!pocCache) return;
+  var data = pocCache;
+  var detailed = pocView === 'scientist';
+  document.getElementById('pocPlainView').classList.toggle('active', !detailed);
+  document.getElementById('pocScientistView').classList.toggle('active', detailed);
+  document.getElementById('pocTitle').textContent = data.program.title;
+  document.getElementById('pocMission').textContent = detailed ? data.program.mission : data.program.plain_language;
+
+  document.getElementById('pocTruthStrip').innerHTML =
+    '<div><span>Program variant</span><strong>'+escapeGraphHtml(data.program.transcript)+' · '+escapeGraphHtml(data.program.program_variant)+'</strong></div>'+
+    '<div><span>Evidence boundary</span><strong>'+escapeGraphHtml(detailed ? data.evidence_boundary.variant_status : 'The exact variant still needs mechanism confirmation')+'</strong></div>'+
+    '<div><span>Model rule</span><strong>'+escapeGraphHtml(detailed ? data.evidence_boundary.model_anchor : 'A512P informs the pathway; it does not prove Leu756Arg biology')+'</strong></div>';
+
+  var kpis = [
+    {n:data.counts.biology_steps, l:'linked biology steps'},
+    {n:data.counts.experimental_groups, l:'experimental groups'},
+    {n:data.counts.go_no_go_gates, l:'go / no-go gates'},
+    {n:data.counts.validated_gates+' / '+data.counts.go_no_go_gates, l:'experimentally validated gates'},
+    {n:data.counts.live_copilots+' / '+data.counts.copilot_interfaces, l:'copilots with successful live evidence'},
+  ];
+  document.getElementById('pocKpis').innerHTML = kpis.map(function(k){return '<div class="kpi"><div class="n">'+k.n+'</div><div class="l">'+k.l+'</div></div>';}).join('');
+
+  document.getElementById('pocChain').innerHTML = data.biology_chain.map(function(step){
+    var assay = detailed ? '<div class="poc-assays">'+step.assays.map(function(a){return '<span>'+escapeGraphHtml(a)+'</span>';}).join('')+'</div>' : '';
+    return '<article class="poc-chain-step"><div class="poc-chain-number">'+step.step+'</div><div><small>'+escapeGraphHtml(step.label)+'</small><p>'+escapeGraphHtml(detailed ? step.scientist : step.plain)+'</p>'+assay+'</div></article>';
+  }).join('');
+
+  document.getElementById('pocGroups').innerHTML = data.experimental_groups.map(function(group, index){
+    return '<div class="poc-list-row"><span>'+(index+1)+'</span><div><strong>'+escapeGraphHtml(group.name)+'</strong><small>'+escapeGraphHtml(group.purpose)+'</small></div></div>';
+  }).join('');
+
+  document.getElementById('pocTiers').innerHTML = data.development_tiers.map(function(tier){
+    return '<div class="poc-tier"><b>Tier '+tier.tier+'</b><div><strong>'+escapeGraphHtml(tier.name)+'</strong><small>'+escapeGraphHtml(tier.models)+'</small><p>'+escapeGraphHtml(tier.decision)+'</p></div></div>';
+  }).join('');
+
+  document.getElementById('pocGates').innerHTML = data.go_no_go_gates.map(function(gate, index){
+    return '<article class="poc-gate"><div class="poc-gate-top"><span>Gate '+(index+1)+'</span><b>Planned</b></div><h4>'+escapeGraphHtml(gate.name)+'</h4><p>'+escapeGraphHtml(gate.question)+'</p></article>';
+  }).join('');
+
+  document.getElementById('pocCopilots').innerHTML = data.execution_copilots.map(function(copilot){
+    var sourceNames = copilot.sources.length ? copilot.sources.map(function(source){
+      var resultClass = source.latest_status === 'success' ? 'ok' : (source.latest_status === 'error' ? 'bad' : 'idle');
+      return '<span class="poc-agent-source '+resultClass+'">'+escapeGraphHtml(source.name)+'</span>';
+    }).join('') : '<span class="poc-agent-source idle">ELN / LIMS connector not yet configured</span>';
+    return '<article class="poc-copilot"><div class="poc-copilot-head"><span class="poc-emoji">'+copilot.emoji+'</span><div><h4>'+escapeGraphHtml(copilot.name)+'</h4>'+pocStateLabel(copilot.state)+'</div></div><p>'+escapeGraphHtml(detailed ? copilot.scientist : copilot.plain)+'</p><div class="poc-deliverable"><span>Delivers</span>'+escapeGraphHtml(copilot.deliverable)+'</div><div class="poc-agent-sources">'+sourceNames+'</div></article>';
+  }).join('');
+
+  document.getElementById('pocRigor').innerHTML = data.rigor_locks.map(function(rule){return '<li>'+escapeGraphHtml(rule)+'</li>';}).join('');
+  document.getElementById('pocFunding').innerHTML =
+    '<div class="poc-funding-truth"><span>'+escapeGraphHtml(data.funding_truth.headline)+'</span><strong>'+escapeGraphHtml(data.funding_truth.current_state)+'</strong><p>'+escapeGraphHtml(data.funding_truth.investment_case)+'</p></div>'+
+    data.funding_milestones.map(function(milestone){
+      return '<div class="poc-milestone"><span class="poc-milestone-status '+escapeGraphHtml(milestone.status)+'">'+escapeGraphHtml(milestone.status.replace(/_/g,' '))+'</span><div><strong>'+escapeGraphHtml(milestone.name)+'</strong><small>'+escapeGraphHtml(milestone.unlocks)+'</small></div></div>';
+    }).join('');
+
+  document.getElementById('pocSources').innerHTML = '<div class="poc-source-grid">'+data.verification_sources.map(function(source){
+    return '<a class="poc-source" href="'+escapeGraphHtml(source.url)+'" target="_blank" rel="noreferrer"><strong>'+escapeGraphHtml(source.name)+' ↗</strong><span>'+escapeGraphHtml(source.supports)+'</span></a>';
+  }).join('')+'</div>';
+}
+
+async function loadPocWorkbench(){
+  pocCache = await api('/api/poc');
+  renderPocWorkbench();
+}
+
+document.getElementById('pocPlainView').addEventListener('click', function(){pocView='plain';renderPocWorkbench();});
+document.getElementById('pocScientistView').addEventListener('click', function(){pocView='scientist';renderPocWorkbench();});
+
 function renderFooter(){
   document.getElementById('footerBox').innerHTML =
     '<p>This dashboard is served by the CADDTARD API itself (FastAPI + StaticFiles) &mdash; there is no local HTML file to open. '+
     'All data comes from same-origin <code>/api/*</code> endpoints backed by a persistent database (SQLite locally, Postgres in Docker Compose). '+
-    'v3.2 MVP implements the full seven-layer architecture: a Layer 1 data-source registry, a Layer 2 relational knowledge graph (Postgres-backed today, Neo4j-swappable per ARCHITECTURE.md), '+
+    'v3.4 MVP implements the full seven-layer architecture plus a biology-verified proof-of-concept mission control: a Layer 1 data-source registry, a Layer 2 relational knowledge graph (Postgres-backed today, Neo4j-swappable per ARCHITECTURE.md), '+
     'a Layer 3 agent taxonomy spanning Genomics/Disease Biology/Therapeutics/AI Science/Development, a Layer 4 evidence-graded reasoning engine, a Layer 5 lab operating system, '+
     'and this Layer 6 executive view. "Live agent" pills call real public sources now; "Reference" pills are reserved, honestly-labeled slots not yet wired up &mdash; see ARCHITECTURE.md for the full implemented-vs-planned map.</p>'+
     '<p>Full interactive API reference: <a href="/docs" target="_blank">/docs</a> (Swagger) or <a href="/redoc" target="_blank">/redoc</a>.</p>'+
@@ -686,7 +762,7 @@ async function boot(){
   }
   await Promise.all([
     loadKPIs(), loadScoring(), loadCandidateTabs(), loadAgents(),
-    loadSources(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(), loadCompounds(),
+    loadSources(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(), loadCompounds(), loadPocWorkbench(),
   ]);
   renderFooter();
 }
@@ -697,7 +773,7 @@ document.getElementById('refreshAll').addEventListener('click', async function()
   btn.disabled = true;
   btn.textContent = 'Refreshing…';
   try{
-    await Promise.all([loadKPIs(), loadScoring(), loadAgents(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(), loadDiseaseBiologyWorkbench(), loadCompounds()]);
+    await Promise.all([loadKPIs(), loadScoring(), loadAgents(), loadPortfolioHealth(), loadLabRecommendations(), loadOperations(), loadDiseaseBiologyWorkbench(), loadCompounds(), loadPocWorkbench()]);
     btn.textContent = 'Data refreshed ✓';
     setTimeout(function(){ btn.textContent = oldText; }, 1500);
   }catch(e){
